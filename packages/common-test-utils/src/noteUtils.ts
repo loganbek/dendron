@@ -9,11 +9,11 @@ import {
   DEngineClient,
   EngineWriteOptsV2,
   SchemaTemplate,
+  genHash,
 } from "@dendronhq/common-all";
 import {
   file2Note,
   file2Schema,
-  genHash,
   note2File,
   resolvePath,
   schemaModuleProps2File,

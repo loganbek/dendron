@@ -189,6 +189,7 @@ export class NoteCLICommand extends CLICommand<CommandOpts, CommandOutput> {
 
     try {
       switch (cmd) {
+        // TODO implement new command
         case NoteCommands.LOOKUP: {
           const { query } = checkQuery(opts);
           const notes = await NoteLookupUtils.lookup({ qsRaw: query, engine });

@@ -205,11 +205,14 @@ export class FileStorage implements DStore {
    */
   async findNotes(opts: FindNoteOpts): Promise<NoteProps[]> {
     const { fname, vault } = opts;
-    return NoteDictsUtils.findByFname(
-      fname,
-      { notesById: this.notes, notesByFname: this.noteFnames },
-      vault
-    );
+    if (fname) {
+      return NoteDictsUtils.findByFname(
+        fname,
+        { notesById: this.notes, notesByFname: this.noteFnames },
+        vault
+      );
+    }
+    return [];
   }
 
   /**

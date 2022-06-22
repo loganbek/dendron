@@ -4,6 +4,7 @@ import {
   DNodeUtils,
   DVault,
   FOLDERS,
+  genHash,
   isNotUndefined,
   NoteProps,
   NoteUtils,
@@ -21,7 +22,6 @@ import matter from "gray-matter";
 import YAML, { JSON_SCHEMA } from "js-yaml";
 import _ from "lodash";
 import path from "path";
-import SparkMD5 from "spark-md5";
 // @ts-ignore
 import tmp, { DirResult, dirSync } from "tmp";
 import { resolvePath } from "./files";
@@ -122,10 +122,6 @@ export async function file2Schema(
     await fs.readFile(fpath, { encoding: "utf8" })
   ) as SchemaModuleOpts;
   return SchemaParserV2.parseRaw(schemaOpts, { root, fname, wsRoot });
-}
-
-export function genHash(contents: any) {
-  return SparkMD5.hash(contents); // OR raw hash (binary string)
 }
 
 export async function string2Schema({

@@ -28,6 +28,7 @@ export * from "./abTesting";
 export * from "./abTests";
 export * from "./noteDictsUtils";
 export * from "./publish";
+export * from "./store";
 export { axios, AxiosError };
 export { DateTime };
 

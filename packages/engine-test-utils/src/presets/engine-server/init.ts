@@ -155,12 +155,12 @@ const NOTES = {
     async ({ engine }) => {
       return [
         {
-          actual: _.omit(engine.notes["one"], ["body", "parent"]),
+          actual: _.omit((await engine.getNote("one"))!, ["body", "parent"]),
           expected: {
             children: [],
             created: 1,
             custom: {},
-            contentHash: "bfe07d1374685b973379679f442a165c",
+            contentHash: "fafa54dbe21ed7cfe96caa7fe0522f23",
             data: {},
             desc: "",
             fname: "one",
@@ -177,12 +177,12 @@ const NOTES = {
           },
         },
         {
-          actual: _.omit(engine.notes["three"], ["body", "parent"]),
+          actual: _.omit((await engine.getNote("three"))!, ["body", "parent"]),
           expected: {
             children: [],
             created: 1,
             custom: {},
-            contentHash: "e68fa106a0a73e579c44c25f362f1ae3",
+            contentHash: "37112a67a651b32fcffbd3fdebc4e470",
             data: {},
             desc: "",
             fname: "three",
@@ -219,8 +219,8 @@ const NOTES = {
   ),
   NOTE_TOO_LONG: new TestPresetEntryV4(
     async ({ engine }) => {
-      const one = engine.notes["one"];
-      const two = engine.notes["two"];
+      const one = (await engine.getNote("one"))!;
+      const two = (await engine.getNote("two"))!;
       return [
         // Links in one didn't get parsed since it's too long, but two did
         { actual: one.links.length, expected: 1 },
@@ -253,8 +253,8 @@ const NOTES = {
   ),
   NOTE_TOO_LONG_CONFIG: new TestPresetEntryV4(
     async ({ engine }) => {
-      const one = engine.notes["one"];
-      const two = engine.notes["two"];
+      const one = (await engine.getNote("one"))!;
+      const two = (await engine.getNote("two"))!;
       return [
         // Links in one didn't get parsed since it's too long, but two did
         { actual: one.links.length, expected: 1 },
