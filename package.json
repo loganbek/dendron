@@ -1,0 +1,21 @@
+{
+  "name": "dendron",
+  "displayName": "dendron",
+  "description": "VSCode/VSCodium theme w/ Dendron (dendron.so) color scheme.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.71.0"
+  },
+  "categories": [
+    "Themes"
+  ],
+  "contributes": {
+    "themes": [
+      {
+        "label": "dendron",
+        "uiTheme": "vs-dark",
+        "path": "./themes/dendron-color-theme.json"
+      }
+    ]
+  }
+}
