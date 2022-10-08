@@ -6,7 +6,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Extension:Local",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
@@ -14,7 +14,9 @@
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}"
       ],
-      "outFiles": ["${workspaceFolder:plugin-core}/out/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder:plugin-core}/out/**/*.js"
+      ],
       "skipFiles": [
         "<node_internals>/**/*.js",
         "${workspaceFolder}/**/node_modules/mocha/**/*.js",
@@ -28,36 +30,38 @@
       }
     },
     {
-      "name": "Run Extension:Remote",
-      "type": "extensionHost",
+      "name": "Run Web Extension in VS Code",
+      "type": "pwa-extensionHost",
+      "debugWebWorkerHost": true,
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
       "args": [
+        "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}",
+        "--extensionDevelopmentKind=web"
       ],
-      "outFiles": ["${workspaceFolder:plugin-core}/out/**/*.js"],
-      "skipFiles": [
-        "<node_internals>/**/*.js",
-        "${workspaceFolder}/**/node_modules/mocha/**/*.js",
+      "outFiles": [
+        "${workspaceFolder}/dist/web/**/*.js"
       ],
-      "env": {
-        "STAGE": "dev",
-        "VSCODE_DEBUGGING_EXTENSION": "dendron",
-        "LOG_LEVEL": "debug"
-      }
+      "preLaunchTask": "npm: watch-web"
     },
     {
-      "name": "Run Extension:Prod",
+      "name": "Plugin Web Extension Tests in VS Code",
       "type": "extensionHost",
+      "debugWebWorkerHost": true,
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
+      "webRoot": "${workspaceFolder}/plugin-core/src",
       "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}"
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "--extensionDevelopmentKind=web",
+        "--extensionTestsPath=${workspaceFolder}/dist/web/test/suite/index"
       ],
-      "outFiles": ["${workspaceFolder:plugin-core}/out/**/*.js"],
-      "env": {
-        "VSCODE_DEBUGGING_EXTENSION": "dendron",
-        "LOG_LEVEL": "debug"
+      "outFiles": [
+        "${workspaceFolder}/dist/web/**/*.js"
+      ],
+      "preLaunchTask": "npm: watch-web",
+      "sourceMapPathOverrides": {
+        "*": "${webRoot}/*"
       }
     },
     {
@@ -69,20 +73,13 @@
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extensions"
       ],
-      "outFiles": ["${workspaceFolder:plugin-core}/dist/*.js"],
+      "outFiles": [
+        "${workspaceFolder:plugin-core}/dist/*.js"
+      ],
       "env": {
         "VSCODE_DEBUGGING_EXTENSION": "dendron",
         "LOG_LEVEL": "debug"
       }
-    },
-    {
-      "type": "node",
-      "request": "attach",
-      "name": "Attach to Server",
-      "restart": true,
-      "port": 6009,
-      "sourceMaps": true,
-      "outFiles": ["${workspaceFolder:lsp-server}/out/**/*.js"]
     },
     {
       "name": "Extension Integ Tests",
@@ -100,28 +97,11 @@
       },
       "skipFiles": [
         "<node_internals>/**/*.js",
-        "${workspaceFolder}/**/node_modules/mocha/**/*.js",
+        "${workspaceFolder}/**/node_modules/mocha/**/*.js"
       ],
-      "outFiles": ["${workspaceFolder}/out/src/test/**/*.js"]
-    },
-    {
-      "name": "Extension Integ Tests Remote",
-      "type": "extensionHost",
-      "request": "launch",
-      "runtimeExecutable": "${execPath}",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/src/test/suite-integ/index.js"
-      ],
-      "env": {
-        "TEST_TO_RUN": "",
-        "STAGE": "test"
-      },
-      "skipFiles": [
-        "<node_internals>/**/*.js",
-        "${workspaceFolder}/**/node_modules/mocha/**/*.js",
-      ],
-      "outFiles": ["${workspaceFolder}/out/src/test/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/out/src/test/**/*.js"
+      ]
     },
     {
       "name": "Extension Integ Tests - File",
@@ -129,10 +109,9 @@
       "request": "launch",
       "runtimeExecutable": "${execPath}",
       "args": [
-        //"${workspaceFolder}/fixtures/fake-workspace/dendron.code-workspace",
         "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/src/test/suite-integ/index",
+        "--extensionTestsPath=${workspaceFolder}/out/src/test/suite-integ/index"
       ],
       "env": {
         "STAGE": "test",
@@ -143,7 +122,9 @@
         "${workspaceFolder}/**/node_modules/mocha/**/*.js",
         "**/extensionHostProcess.js"
       ],
-      "outFiles": ["${workspaceFolder}/out/src/test/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/out/src/test/**/*.js"
+      ]
     },
     {
       "name": "Extension Integ Tests - File (with extensions)",
@@ -152,7 +133,7 @@
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
-        "--extensionTestsPath=${workspaceFolder}/out/src/test/suite-integ/index",
+        "--extensionTestsPath=${workspaceFolder}/out/src/test/suite-integ/index"
       ],
       "env": {
         "STAGE": "test",
@@ -160,15 +141,11 @@
       },
       "skipFiles": [
         "<node_internals>/**/*.js",
-        "${workspaceFolder}/**/node_modules/mocha/**/*.js",
+        "${workspaceFolder}/**/node_modules/mocha/**/*.js"
       ],
-      "outFiles": ["${workspaceFolder}/out/src/test/**/*.js"]
-    }
-  ],
-  "compounds": [
-    {
-      "name": "Client + Server",
-      "configurations": ["Run Extension", "Attach to Server"]
+      "outFiles": [
+        "${workspaceFolder}/out/src/test/**/*.js"
+      ]
     }
   ]
 }

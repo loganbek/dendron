@@ -47,6 +47,7 @@ import {
   NoteLookupProviderSuccessResp,
 } from "../components/lookup/LookupProviderV3Interface";
 import { NotePickerUtils } from "../components/lookup/NotePickerUtils";
+import { QuickPickTemplateSelector } from "../components/lookup/QuickPickTemplateSelector";
 import {
   DendronQuickPickerV2,
   DendronQuickPickState,
@@ -61,10 +62,11 @@ import { VaultSelectionModeConfigUtils } from "../components/lookup/vaultSelecti
 import { DendronContext, DENDRON_COMMANDS } from "../constants";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { Logger } from "../logger";
+import { IEngineAPIService } from "../services/EngineAPIServiceInterface";
 import { JournalNote } from "../traits/journal";
 import { AnalyticsUtils, getAnalyticsPayload } from "../utils/analytics";
-import { AutoCompletable } from "../utils/AutoCompletable";
 import { AutoCompleter } from "../utils/autoCompleter";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { WSUtilsV2 } from "../WSUtilsV2";
 import { BaseCommand } from "./base";
@@ -123,15 +125,12 @@ export { CommandOpts as LookupCommandOptsV3 };
  * Note look up command instance that is used by the UI.
  * */
 
-export class NoteLookupCommand
-  extends BaseCommand<
-    CommandOpts,
-    CommandOutput,
-    CommandGatherOutput,
-    CommandRunOpts
-  >
-  implements AutoCompletable
-{
+export class NoteLookupCommand extends BaseCommand<
+  CommandOpts,
+  CommandOutput,
+  CommandGatherOutput,
+  CommandRunOpts
+> {
   key = DENDRON_COMMANDS.LOOKUP_NOTE.key;
   protected _controller: ILookupControllerV3 | undefined;
   protected _provider: ILookupProviderV3 | undefined;
@@ -139,6 +138,19 @@ export class NoteLookupCommand
 
   constructor() {
     super("LookupCommandV3");
+
+    //  ^1h1dr08geo6c
+    AutoCompletableRegistrar.OnAutoComplete(() => {
+      if (this._quickPick) {
+        this._quickPick.value = AutoCompleter.getAutoCompletedValue(
+          this._quickPick
+        );
+
+        this.provider.onUpdatePickerItems({
+          picker: this._quickPick,
+        });
+      }
+    });
   }
 
   public get controller(): ILookupControllerV3 {
@@ -155,7 +167,7 @@ export class NoteLookupCommand
     this._controller = controller;
   }
 
-  protected get provider(): ILookupProviderV3 {
+  public get provider(): ILookupProviderV3 {
     if (_.isUndefined(this._provider)) {
       throw DendronError.createFromStatus({
         status: ERROR_STATUS.INVALID_STATE,
@@ -165,17 +177,18 @@ export class NoteLookupCommand
     return this._provider;
   }
 
-  //  ^1h1dr08geo6c
-  async onAutoComplete() {
-    if (this._quickPick) {
-      this._quickPick.value = AutoCompleter.getAutoCompletedValue(
-        this._quickPick
-      );
-
-      await this.provider.onUpdatePickerItems({
-        picker: this._quickPick,
-      });
-    }
+  /**
+   * @deprecated
+   *
+   * This is not a good pattern and causes a lot of problems with state.
+   * This will be deprecated so that we never have to swap out the provider
+   * of an already existing instance of a lookup command.
+   *
+   * In the meantime, if you absolutely _have_ to provide a custom provider to an instance of
+   * a lookup command, make sure the provider's id is `lookup`.
+   */
+  public set provider(provider: ILookupProviderV3 | undefined) {
+    this._provider = provider;
   }
 
   async gatherInputs(opts?: CommandRunOpts): Promise<CommandGatherOutput> {
@@ -234,9 +247,10 @@ export class NoteLookupCommand
           DirectChildFilterBtn.create(
             copts.filterMiddleware?.includes("directChildOnly")
           ),
-          SelectionExtractBtn.create(
-            copts.selectionType === LookupSelectionTypeEnum.selectionExtract
-          ),
+          SelectionExtractBtn.create({
+            pressed:
+              copts.selectionType === LookupSelectionTypeEnum.selectionExtract,
+          }),
           Selection2LinkBtn.create(
             copts.selectionType === LookupSelectionTypeEnum.selection2link
           ),
@@ -258,11 +272,19 @@ export class NoteLookupCommand
         enableLookupView: true,
       });
     }
-    this._provider = extension.noteLookupProviderFactory.create("lookup", {
-      allowNewNote: true,
-      noHidePickerOnAccept: false,
-      forceAsIsPickerValueUsage: copts.noteType === LookupNoteTypeEnum.scratch,
-    });
+    if (this._provider === undefined) {
+      // hack. we need to do this because
+      // moveSelectionTo sets a custom provider instead of the
+      // one that lookup creates.
+      // TODO: fix moveSelectionTo so that it doesn't rely on this.
+      this._provider = extension.noteLookupProviderFactory.create("lookup", {
+        allowNewNote: true,
+        allowNewNoteWithTemplate: true,
+        noHidePickerOnAccept: false,
+        forceAsIsPickerValueUsage:
+          copts.noteType === LookupNoteTypeEnum.scratch,
+      });
+    }
     const lc = this.controller;
     if (copts.fuzzThreshold) {
       lc.fuzzThreshold = copts.fuzzThreshold;
@@ -276,9 +298,6 @@ export class NoteLookupCommand
       initialValue: copts.initialValue,
       nonInteractive: copts.noConfirm,
       alwaysShow: true,
-      onDidHide: () => {
-        VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
-      },
     });
     this._quickPick = quickpick;
 
@@ -300,7 +319,6 @@ export class NoteLookupCommand
     opts: CommandGatherOutput
   ): Promise<CommandOpts | undefined> {
     const ctx = "NoteLookupCommand:enrichInputs";
-
     let promiseResolve: (
       value: CommandOpts | undefined
     ) => PromiseLike<CommandOpts | undefined>;
@@ -357,7 +375,6 @@ export class NoteLookupCommand
         }
       },
     });
-
     const promise = new Promise<CommandOpts | undefined>((resolve) => {
       promiseResolve = resolve as typeof promiseResolve;
       opts.controller.showQuickPick({
@@ -381,6 +398,9 @@ export class NoteLookupCommand
     return canSelectMany ? selectedItems : selectedItems.slice(0, 1);
   }
 
+  /**
+   * Executed after user accepts a quickpick item
+   */
   async execute(opts: CommandOpts) {
     const ctx = "NoteLookupCommand:execute";
     Logger.info({ ctx, msg: "enter" });
@@ -427,14 +447,14 @@ export class NoteLookupCommand
           return this.acceptItem(item);
         })
       );
-      const outClean = out.filter(
+      const notesToShow = out.filter(
         (ent) => !_.isUndefined(ent)
       ) as OnDidAcceptReturn[];
       if (!_.isUndefined(quickpick.copyNoteLinkFunc)) {
-        await quickpick.copyNoteLinkFunc!(outClean.map((item) => item.node));
+        await quickpick.copyNoteLinkFunc!(notesToShow.map((item) => item.node));
       }
       await _.reduce(
-        outClean,
+        notesToShow,
         async (acc, item) => {
           await acc;
           return quickpick.showNote!(item.uri);
@@ -456,6 +476,7 @@ export class NoteLookupCommand
     }
     this.controller = undefined;
     HistoryService.instance().remove("lookup", "lookupProvider");
+    VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
   }
 
   async acceptItem(
@@ -463,9 +484,16 @@ export class NoteLookupCommand
   ): Promise<OnDidAcceptReturn | undefined> {
     let result: Promise<OnDidAcceptReturn | undefined>;
     const start = process.hrtime();
-    const isNew = PickerUtilsV2.isCreateNewNotePick(item);
+    const isNew = PickerUtilsV2.isCreateNewNotePicked(item);
+
+    const isNewWithTemplate =
+      PickerUtilsV2.isCreateNewNoteWithTemplatePicked(item);
     if (isNew) {
-      result = this.acceptNewItem(item);
+      if (isNewWithTemplate) {
+        result = this.acceptNewWithTemplateItem(item);
+      } else {
+        result = this.acceptNewItem(item);
+      }
     } else {
       result = this.acceptExistingItem(item);
     }
@@ -473,6 +501,7 @@ export class NoteLookupCommand
     AnalyticsUtils.track(VSCodeEvents.NoteLookup_Accept, {
       duration: profile,
       isNew,
+      isNewWithTemplate,
     });
     const metaData = MetadataService.instance().getMeta();
     if (_.isUndefined(metaData.firstLookupTime)) {
@@ -485,8 +514,44 @@ export class NoteLookupCommand
   async acceptExistingItem(
     item: NoteQuickInput
   ): Promise<OnDidAcceptReturn | undefined> {
+    const picker = this.controller.quickPick;
     const uri = node2Uri(item);
+    const originalNoteFromItem = PickerUtilsV2.noteQuickInputToNote(item);
+    const originalNoteDeepCopy = _.cloneDeep(originalNoteFromItem);
+
+    if (picker.selectionProcessFunc !== undefined) {
+      const processedNode = await picker.selectionProcessFunc(
+        originalNoteDeepCopy
+      );
+      if (processedNode !== undefined) {
+        if (!_.isEqual(originalNoteFromItem, processedNode)) {
+          const engine = ExtensionProvider.getEngine();
+          await engine.writeNote(processedNode);
+        }
+        return { uri, node: processedNode };
+      }
+    }
     return { uri, node: item };
+  }
+
+  /**
+   * Given a selected note item that is a stub note,
+   * Prepare it for accepting as a new item.
+   * This removes the `stub` frontmatter
+   * and applies schema if there is one that matches
+   */
+  async prepareStubItem(opts: {
+    item: NoteQuickInput;
+    engine: IEngineAPIService;
+  }): Promise<NoteProps> {
+    const { item, engine } = opts;
+
+    const noteFromItem = PickerUtilsV2.noteQuickInputToNote(item);
+    const preparedNote = await NoteUtils.updateStubWithSchema({
+      stubNote: noteFromItem,
+      engine,
+    });
+    return preparedNote;
   }
 
   async acceptNewItem(
@@ -500,9 +565,10 @@ export class NoteLookupCommand
     let nodeNew: NoteProps;
     if (item.stub) {
       Logger.info({ ctx, msg: "create stub" });
-      nodeNew = engine.notes[item.id];
-      // when we are accepting a new item that is a stub, it no longer is a stub
-      nodeNew = _.omit(nodeNew, "stub");
+      nodeNew = await this.prepareStubItem({
+        item,
+        engine,
+      });
     } else {
       const vault = await this.getVaultForNewNote({ fname, picker });
       if (vault === undefined) {
@@ -510,7 +576,7 @@ export class NoteLookupCommand
         // are going to cancel the creation of the note.
         return;
       }
-      nodeNew = NoteUtils.createWithSchema({
+      nodeNew = await NoteUtils.createWithSchema({
         noteOpts: {
           fname,
           vault,
@@ -552,9 +618,7 @@ export class NoteLookupCommand
       const nodeModified = await picker.onCreate(nodeNew);
       if (nodeModified) nodeNew = nodeModified;
     }
-    const resp = await engine.writeNote(nodeNew, {
-      newNode: true,
-    });
+    const resp = await engine.writeNote(nodeNew);
     if (resp.error) {
       Logger.error({ ctx, error: resp.error });
       return;
@@ -563,6 +627,53 @@ export class NoteLookupCommand
     const uri = NoteUtils.getURI({
       note: nodeNew,
       wsRoot: ExtensionProvider.getDWorkspace().wsRoot,
+    });
+    return { uri, node: nodeNew, resp };
+  }
+
+  async acceptNewWithTemplateItem(
+    item: NoteQuickInput
+  ): Promise<OnDidAcceptReturn | undefined> {
+    const ctx = "acceptNewWithTemplateItem";
+    const picker = this.controller.quickPick;
+    const fname = this.getFNameForNewItem(item);
+
+    const engine = ExtensionProvider.getEngine();
+    let nodeNew: NoteProps = item;
+    const vault = await this.getVaultForNewNote({ fname, picker });
+    if (vault === undefined) {
+      return;
+    }
+    nodeNew = NoteUtils.create({
+      fname,
+      vault,
+      title: item.title,
+    });
+    const templateNote = await this.getTemplateForNewNote();
+    if (templateNote) {
+      TemplateUtils.applyTemplate({
+        templateNote,
+        targetNote: nodeNew,
+        engine,
+      });
+    }
+
+    // only enable selection 2 link
+    if (
+      picker.selectionProcessFunc !== undefined &&
+      picker.selectionProcessFunc.name === "selection2link"
+    ) {
+      nodeNew = (await picker.selectionProcessFunc(nodeNew)) as NoteProps;
+    }
+    const resp = await engine.writeNote(nodeNew);
+    if (resp.error) {
+      Logger.error({ ctx, error: resp.error });
+      return;
+    }
+
+    const uri = NoteUtils.getURI({
+      note: nodeNew,
+      wsRoot: engine.wsRoot,
     });
     return { uri, node: nodeNew, resp };
   }
@@ -591,9 +702,7 @@ export class NoteLookupCommand
     const engine = ExtensionProvider.getEngine();
 
     const vaultsWithMatchingFile = new Set(
-      NoteUtils.getNotesByFnameFromEngine({ fname, engine }).map(
-        (n) => n.vault.fsPath
-      )
+      (await engine.findNotesMeta({ fname })).map((n) => n.vault.fsPath)
     );
 
     // Try to get the default vault value.
@@ -632,6 +741,17 @@ export class NoteLookupCommand
     }
 
     return vault;
+  }
+
+  private async getTemplateForNewNote(): Promise<NoteProps | undefined> {
+    const selector = new QuickPickTemplateSelector();
+
+    const templateNote = await selector.getTemplate({
+      logger: this.L,
+      providerId: "createNewWithTemplate",
+    });
+
+    return templateNote;
   }
 
   private isJournalButtonPressed() {

@@ -1,11 +1,11 @@
-import { EngineUtils } from "@dendronhq/engine-server";
 import fs from "fs-extra";
 import path from "path";
 import { window, workspace } from "vscode";
 import { DENDRON_COMMANDS } from "../constants";
+import { ExtensionProvider } from "../ExtensionProvider";
 import { Logger } from "../logger";
 import { clipboard } from "../utils";
-import { DendronExtension, getDWorkspace } from "../workspace";
+import { DendronExtension } from "../workspace";
 import { BasicCommand } from "./base";
 
 const L = Logger;
@@ -32,13 +32,18 @@ export class DiagnosticsReportCommand extends BasicCommand<
       path.dirname(logPath),
       "dendron.server.log"
     );
-    const serverLogFile = fs.readFileSync(serverLogPath, { encoding: "utf8" });
-    const serverLastLines = serverLogFile.slice(-3000);
 
-    const config = JSON.stringify(getDWorkspace().config);
-    const wsRoot = getDWorkspace().wsRoot;
-    const port = EngineUtils.getPortFilePathForWorkspace({ wsRoot });
-    const portFromFile = fs.readFileSync(port, { encoding: "utf8" });
+    let serverLastLines: string = "";
+    if (fs.pathExistsSync(serverLogPath)) {
+      const serverLogFile = fs.readFileSync(serverLogPath, {
+        encoding: "utf8",
+      });
+      serverLastLines = serverLogFile.slice(-5000);
+    }
+
+    const ext = ExtensionProvider.getExtension();
+    const config = ext.getDWorkspace().config.toString();
+    const port = ext.port;
 
     let wsFile: string;
     try {
@@ -57,10 +62,10 @@ export class DiagnosticsReportCommand extends BasicCommand<
       "---",
       "# Server Logs",
       serverLastLines,
-      "# Dendron Confg",
+      "# Dendron Config",
       config,
       "# Port",
-      portFromFile,
+      port,
       "# Workspace File",
       wsFile,
     ].join("\n");

@@ -7,30 +7,37 @@ import {
   Disposable,
   DLink,
   DVault,
+  extractNoteChangeEntryCounts,
   genUUID,
+  InvalidFilenameReason,
   isNotUndefined,
   NoteChangeEntry,
   NoteDicts,
   NoteDictsUtils,
-  NoteFnameDictUtils,
   NoteProps,
   NoteUtils,
+  ProcFlavor,
+  ValidateFnameResp,
   VaultUtils,
 } from "@dendronhq/common-all";
 import {
   createDisposableLogger,
+  DConfig,
   isSelfContainedVaultFolder,
   pathForVaultRoot,
 } from "@dendronhq/common-server";
 import throttle from "@jcoreio/async-throttle";
+import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
 import { DEPRECATED_PATHS, Git, WorkspaceService } from "..";
-import { LinkUtils, RemarkUtils } from "../markdown/remark/utils";
-import { DendronASTDest } from "../markdown/types";
-import { MDUtilsV4 } from "../markdown/utils";
-import fs from "fs-extra";
-import { DConfig } from "../config";
+import {
+  ProcMode,
+  MDUtilsV5,
+  LinkUtils,
+  RemarkUtils,
+  DendronASTDest,
+} from "@dendronhq/unified";
 
 export enum DoctorActionsEnum {
   FIX_FRONTMATTER = "fixFrontmatter",
@@ -45,6 +52,7 @@ export enum DoctorActionsEnum {
   ADD_MISSING_DEFAULT_CONFIGS = "addMissingDefaultConfigs",
   REMOVE_DEPRECATED_CONFIGS = "removeDeprecatedConfigs",
   FIX_SELF_CONTAINED_VAULT_CONFIG = "fixSelfContainedVaultsInConfig",
+  FIX_INVALID_FILENAMES = "fixInvalidFileNames",
 }
 
 export type DoctorServiceOpts = {
@@ -66,11 +74,15 @@ export type DoctorServiceOpts = {
 export class DoctorService implements Disposable {
   public L: ReturnType<typeof createDisposableLogger>["logger"];
   private loggerDispose: ReturnType<typeof createDisposableLogger>["dispose"];
+  private print: Function;
 
-  constructor() {
+  constructor(opts?: { printFunc?: Function }) {
     const { logger, dispose } = createDisposableLogger("DoctorService");
     this.L = logger;
     this.loggerDispose = dispose;
+    // if given a print function, use that.
+    // otherwise, no-op
+    this.print = opts?.printFunc ? opts.printFunc : () => {};
   }
 
   dispose() {
@@ -129,19 +141,13 @@ export class DoctorService implements Disposable {
   getBrokenLinkDestinations(notes: NoteProps[], engine: DEngineClient) {
     const { vaults } = engine;
     let brokenWikiLinks: DLink[] = [];
-    const notesById = NoteDictsUtils.createNotePropsByIdDict(notes);
-    const notesByFname =
-      NoteFnameDictUtils.createNotePropsByFnameDict(notesById);
+    const noteDicts = NoteDictsUtils.createNoteDicts(notes);
     _.forEach(notes, (note) => {
       const links = note.links;
       if (_.isEmpty(links)) {
         return;
       }
-      const brokenLinks = this.findBrokenLinks(
-        note,
-        { notesById, notesByFname },
-        engine
-      );
+      const brokenLinks = this.findBrokenLinks(note, noteDicts, engine);
       brokenWikiLinks = brokenWikiLinks.concat(brokenLinks);
 
       return true;
@@ -196,16 +202,18 @@ export class DoctorService implements Disposable {
 
     let notes: NoteProps[];
     if (_.isUndefined(candidates)) {
-      notes = query
-        ? engine.queryNotesSync({ qs: query, originalQS: query }).data
-        : _.values(engine.notes);
+      notes =
+        (query
+          ? engine.queryNotesSync({ qs: query, originalQS: query }).data
+          : await engine.findNotes({ excludeStub: true })) ?? [];
     } else {
       notes = candidates;
     }
-    notes = notes.filter((n) => !n.stub);
-    const notesById = NoteDictsUtils.createNotePropsByIdDict(notes);
-    const notesByFname =
-      NoteFnameDictUtils.createNotePropsByFnameDict(notesById);
+    if (notes) {
+      notes = notes.filter((n) => !n.stub);
+    }
+
+    const noteDicts = NoteDictsUtils.createNoteDicts(notes);
     // this.L.info({ msg: "prep doctor", numResults: notes.length });
     let numChanges = 0;
     let resp: any;
@@ -225,8 +233,9 @@ export class DoctorService implements Disposable {
     let doctorAction: ((note: NoteProps) => Promise<any>) | undefined;
     switch (action) {
       case DoctorActionsEnum.REMOVE_DEPRECATED_CONFIGS: {
-        const { wsRoot, config } = engine;
+        const { wsRoot } = engine;
         const rawConfig = DConfig.getRaw(wsRoot);
+        const config = DConfig.readConfigSync(wsRoot);
         const pathsToDelete = ConfigUtils.detectDeprecatedConfigs({
           config: rawConfig,
           deprecatedPaths: DEPRECATED_PATHS,
@@ -294,8 +303,7 @@ export class DoctorService implements Disposable {
         return { exit: true };
       }
       case DoctorActionsEnum.FIX_FRONTMATTER: {
-        // eslint-disable-next-line no-console
-        console.log(
+        this.print(
           "the CLI currently doesn't support this action. please run this using the plugin"
         );
         return { exit };
@@ -304,18 +312,25 @@ export class DoctorService implements Disposable {
       case DoctorActionsEnum.H1_TO_TITLE: {
         doctorAction = async (note: NoteProps) => {
           const changes: NoteChangeEntry[] = [];
-          const proc = MDUtilsV4.procFull({
-            dest: DendronASTDest.MD_DENDRON,
-            engine,
-            fname: note.fname,
-            vault: note.vault,
-          });
+          const proc = MDUtilsV5._procRemark(
+            {
+              mode: ProcMode.IMPORT,
+              flavor: ProcFlavor.REGULAR,
+            },
+            {
+              dest: DendronASTDest.MD_DENDRON,
+              noteToRender: note,
+              fname: note.fname,
+              vault: note.vault,
+              config: DConfig.readConfigSync(engine.wsRoot),
+            }
+          );
           const newBody = await proc()
             .use(RemarkUtils.h1ToTitle(note, changes))
             .process(note.body);
           note.body = newBody.toString();
           if (!_.isEmpty(changes)) {
-            await engineWrite(note, { updateExisting: true });
+            await engineWrite(note);
             this.L.info({ msg: `changes ${note.fname}`, changes });
             numChanges += 1;
             return;
@@ -328,18 +343,25 @@ export class DoctorService implements Disposable {
       case DoctorActionsEnum.HI_TO_H2: {
         doctorAction = async (note: NoteProps) => {
           const changes: NoteChangeEntry[] = [];
-          const proc = MDUtilsV4.procFull({
-            dest: DendronASTDest.MD_DENDRON,
-            engine,
-            fname: note.fname,
-            vault: note.vault,
-          });
+          const proc = MDUtilsV5._procRemark(
+            {
+              mode: ProcMode.IMPORT,
+              flavor: ProcFlavor.REGULAR,
+            },
+            {
+              dest: DendronASTDest.MD_DENDRON,
+              noteToRender: note,
+              fname: note.fname,
+              vault: note.vault,
+              config: DConfig.readConfigSync(engine.wsRoot),
+            }
+          );
           const newBody = await proc()
             .use(RemarkUtils.h1ToH2(note, changes))
             .process(note.body);
           note.body = newBody.toString();
           if (!_.isEmpty(changes)) {
-            await engineWrite(note, { updateExisting: true });
+            await engineWrite(note);
             this.L.info({ msg: `changes ${note.fname}`, changes });
             numChanges += 1;
             return;
@@ -386,8 +408,6 @@ export class DoctorService implements Disposable {
           note.id = genUUID();
           await engine.writeNote(note, {
             runHooks: false,
-            // Old note needs to be removed
-            updateExisting: false,
           });
           numChanges += 1;
         };
@@ -396,11 +416,7 @@ export class DoctorService implements Disposable {
       case DoctorActionsEnum.FIND_BROKEN_LINKS: {
         resp = [];
         doctorAction = async (note: NoteProps) => {
-          const brokenLinks = this.findBrokenLinks(
-            note,
-            { notesById, notesByFname },
-            engine
-          );
+          const brokenLinks = this.findBrokenLinks(note, noteDicts, engine);
           if (brokenLinks.length > 0) {
             resp.push({
               file: note.fname,
@@ -543,7 +559,7 @@ export class DoctorService implements Disposable {
           );
         }
         //finding candidate notes
-        notes = Object.values(notes).filter(
+        notes = notes.filter(
           (value) =>
             value.fname.startsWith(selectedHierarchy) &&
             value.stub !== true &&
@@ -568,7 +584,56 @@ export class DoctorService implements Disposable {
             custom: { ...note.custom, pods },
           };
           // update note
-          await engine.writeNote(updatedNote, { updateExisting: true });
+          await engine.writeNote(updatedNote);
+        };
+        break;
+      }
+      case DoctorActionsEnum.FIX_INVALID_FILENAMES: {
+        const { canRename, cantRename, stats } = this.findInvalidFileNames({
+          notes,
+          noteDicts,
+        });
+        resp = stats;
+
+        if (canRename.length > 0) {
+          this.print("Found invalid filename in notes:\n");
+          canRename.forEach((item) => {
+            const { note, resp, cleanedFname } = item;
+            const { fname, vault } = note;
+            const vaultName = VaultUtils.getName(vault);
+            this.print(
+              `Note "${fname}" in ${vaultName} (reason: ${resp.reason})`
+            );
+            this.print(`  Can be automatically fixed to "${cleanedFname}"`);
+          });
+        }
+        let changes: NoteChangeEntry[] = [];
+        if (!dryRun) {
+          changes = await this.fixInvalidFileNames({
+            canRename,
+            engine,
+          });
+        }
+
+        if (cantRename.length > 0) {
+          this.print(
+            "These notes' filenames cannot be automatically fixed because it will result in duplicate notes:"
+          );
+          cantRename.forEach((item) => {
+            const { note, resp, cleanedFname } = item;
+            const { fname, vault } = note;
+            const vaultName = VaultUtils.getName(vault);
+            this.print(
+              `Note "${fname}" in ${vaultName} (reason: ${resp.reason})`
+            );
+            this.print(`  Note "${cleanedFname}" already exists.`);
+          });
+        }
+
+        const changeCounts = extractNoteChangeEntryCounts(changes);
+        resp = {
+          ...resp,
+          ...changeCounts,
         };
         break;
       }
@@ -587,9 +652,8 @@ export class DoctorService implements Disposable {
       }
     }
     this.L.info({ msg: "doctor done", numChanges });
-    if (action === DoctorActionsEnum.FIND_BROKEN_LINKS && !opts.quiet) {
-      // eslint-disable-next-line no-console
-      console.log(JSON.stringify({ brokenLinks: resp }, null, "  "));
+    if (action === DoctorActionsEnum.FIND_BROKEN_LINKS) {
+      this.print(JSON.stringify({ brokenLinks: resp }, null, "  "));
     }
     return { exit, resp };
   }
@@ -608,5 +672,106 @@ export class DoctorService implements Disposable {
         payload: error,
       });
     }
+  }
+
+  findInvalidFileNames(opts: { notes: NoteProps[]; noteDicts: NoteDicts }) {
+    const { notes, noteDicts } = opts;
+    const validationResps = notes
+      // stubs will be automatically handled when their children are renamed
+      .filter((note: NoteProps) => {
+        return !note.stub;
+      })
+      .map((note: NoteProps) => {
+        const { fname } = note;
+        const resp = NoteUtils.validateFname(fname);
+        return {
+          note,
+          resp,
+        };
+      });
+    const invalidResps = validationResps.filter(
+      (validationResp) => !validationResp.resp.isValid
+    );
+    const stats = {
+      numEmptyHierarchy: invalidResps.filter(
+        (item) => item.resp.reason === InvalidFilenameReason.EMPTY_HIERARCHY
+      ).length,
+      numIllegalCharacter: invalidResps.filter(
+        (item) => item.resp.reason === InvalidFilenameReason.ILLEGAL_CHARACTER
+      ).length,
+      numLeadingOrTrailingWhitespace: invalidResps.filter(
+        (item) =>
+          item.resp.reason ===
+          InvalidFilenameReason.LEADING_OR_TRAILING_WHITESPACE
+      ).length,
+    };
+
+    const [canRename, cantRename] = _.partition(
+      invalidResps.map((item) => {
+        const { note } = item;
+        const { fname } = note;
+        const cleanedFname = NoteUtils.cleanFname({
+          fname,
+        });
+        const canRename =
+          NoteDictsUtils.findByFname(cleanedFname, noteDicts, note.vault)
+            .length === 0;
+        return {
+          ...item,
+          cleanedFname,
+          canRename,
+        };
+      }),
+      (item) => item.canRename
+    );
+
+    return {
+      canRename,
+      cantRename,
+      stats,
+    };
+  }
+
+  async fixInvalidFileNames(opts: {
+    canRename: {
+      cleanedFname: string;
+      canRename: boolean;
+      note: NoteProps;
+      resp: ValidateFnameResp;
+    }[];
+    engine: DEngineClient;
+  }) {
+    const { canRename, engine } = opts;
+    let changes: NoteChangeEntry[] = [];
+    if (canRename.length > 0) {
+      await asyncLoopOneAtATime(canRename, async (item) => {
+        const { note, cleanedFname } = item;
+        const { fname, vault } = note;
+        const vaultName = VaultUtils.getName(vault);
+        const out = await engine.renameNote({
+          oldLoc: {
+            fname,
+            vaultName,
+          },
+          newLoc: {
+            fname: cleanedFname,
+            vaultName,
+          },
+        });
+        if (out.data) {
+          changes = changes.concat(out.data);
+          this.print(
+            `Note "${fname}" in ${vaultName} renamed to "${cleanedFname}"`
+          );
+        }
+        if (out.error) {
+          this.print(
+            `Error encountered while renaming "${fname}" in vault ${vaultName}. The filename of this note is still invalid. Please manually rename this note.`
+          );
+        }
+      });
+      this.print("\n");
+    }
+    return changes;
   }
 }

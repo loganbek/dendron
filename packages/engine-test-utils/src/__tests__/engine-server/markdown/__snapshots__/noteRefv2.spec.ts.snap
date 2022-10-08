@@ -1,10 +1,117 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`legacy note ref compile "MD_DENDRON: BAD_REF" 1`] = `
+exports[`noteRefV2 WHEN assetPrefix set "HTML: ASSET_PREFIX_SET: PUBLISHING" 1`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
+<p></p><p><iframe class=\\"noteref-iframe\\" src=\\"/some-prefix/refs/bar---0\\" title=\\"Reference to the note called Bar\\">Your browser does not support iframes.</iframe></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN note ref to html AND prettyLinks = true "HTML: NOTE_REF_WITH_REHYPE: PREVIEW" 1`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo</h1>
+<p></p><p></p><div class=\\"portal-container\\">
+<div class=\\"portal-head\\">
+<div class=\\"portal-backlink\\">
+<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Alpha</span></div>
+<a href=\\"alpha-id\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+</div>
+</div>
+<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
+<div class=\\"portal-parent-fader-top\\"></div>
+<div class=\\"portal-parent-fader-bottom\\"></div><p><a href=\\"bar\\">bar</a></p>
+</div></div><p></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN note ref to html AND prettyLinks = true "HTML: NOTE_REF_WITH_REHYPE: PREVIEW" 2`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo</h1>
+<p></p><p></p><div class=\\"portal-container\\">
+<div class=\\"portal-head\\">
+<div class=\\"portal-backlink\\">
+<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Alpha</span></div>
+<a href=\\"alpha-id\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+</div>
+</div>
+<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
+<div class=\\"portal-parent-fader-top\\"></div>
+<div class=\\"portal-parent-fader-bottom\\"></div><p><a href=\\"bar\\">bar</a></p>
+</div></div><p></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN note ref to html AND prettyLinks = true "HTML: NOTE_REF_WITH_REHYPE: PUBLISHING" 1`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
+<p></p><p><iframe class=\\"noteref-iframe\\" src=\\"/refs/alpha-id---0\\" title=\\"Reference to the note called Alpha\\">Your browser does not support iframes.</iframe></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN note ref to html AND prettyLinks = true "HTML: NOTE_REF_WITH_REHYPE: REGULAR" 1`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo</h1>
+<p></p><p></p><div class=\\"portal-container\\">
+<div class=\\"portal-head\\">
+<div class=\\"portal-backlink\\">
+<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Alpha</span></div>
+<a href=\\"alpha-id\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+</div>
+</div>
+<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
+<div class=\\"portal-parent-fader-top\\"></div>
+<div class=\\"portal-parent-fader-bottom\\"></div><p><a href=\\"bar\\">bar</a></p>
+</div></div><p></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN note ref to html AND prettyLinks = true "HTML: NOTE_REF_WITH_REHYPE: REGULAR" 2`] = `
+VFile {
+  "contents": "<h1 id=\\"foo\\">Foo</h1>
+<p></p><p></p><div class=\\"portal-container\\">
+<div class=\\"portal-head\\">
+<div class=\\"portal-backlink\\">
+<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Alpha</span></div>
+<a href=\\"alpha-id\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+</div>
+</div>
+<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
+<div class=\\"portal-parent-fader-top\\"></div>
+<div class=\\"portal-parent-fader-bottom\\"></div><p><a href=\\"bar\\">bar</a></p>
+</div></div><p></p><p></p>",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse begin block AND note has beginning section "MD_REGULAR: THEN parse beginning section: REGULAR" 1`] = `
 VFile {
   "contents": "# Foo
 
-((foo))
+Some text at the beginning
+
 
 ",
   "cwd": "<PROJECT_ROOT>",
@@ -14,11 +121,255 @@ VFile {
 }
 `;
 
-exports[`legacy note ref compile "MD_DENDRON: BAD_REF" 2`] = `
+exports[`noteRefV2 WHEN parse begin block AND note has beginning section "MD_REGULAR: THEN parse beginning section: REGULAR" 2`] = `
 VFile {
   "contents": "# Foo
 
-((foo))
+Some text at the beginning
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse begin block AND note has beginning section but no headers "MD_REGULAR: THEN parse beginning section: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+Some text at the beginning
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse begin block AND note starts with a header "MD_REGULAR: THEN parse beginning section: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+> No note with name foo found in cache during parsing.
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse end block AND WHEN try parse #^end anchor as start anchor "MD_REGULAR: THEN show error: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+the '^end' anchor cannot be used as the starting anchor
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse end block AND note ends on a header "MD_REGULAR: THEN parse beginning section: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+## Header 1
+
+body 1.1
+
+## Header 2
+
+body 2.2
+end section
+
+## Header 3
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse end block AND note has beginning section "MD_REGULAR: THEN parse beginning section: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+## Header 1
+
+body 1.1
+
+## Header 2
+
+body 2.2
+end section
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse end block AND note has beginning section "MD_REGULAR: THEN parse beginning section: REGULAR" 2`] = `
+VFile {
+  "contents": "# Foo
+
+## Header 1
+
+body 1.1
+
+## Header 2
+
+body 2.2
+end section
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from end header "MD_REGULAR: THEN parse end header and sub headers: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 3
+
+task3
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from end header "MD_REGULAR: THEN parse end header and sub headers: REGULAR" 2`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 3
+
+task3
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from middle header "MD_REGULAR: THEN parse middle header and sub headers: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 2
+
+task2
+
+### Header 2.1
+
+task2.1
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from middle header "MD_REGULAR: THEN parse middle header and sub headers: REGULAR" 2`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 2
+
+task2
+
+### Header 2.1
+
+task2.1
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from start header "MD_REGULAR: THEN parse start header and sub headers: REGULAR" 1`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 1
+
+task1
+
+### Header 1.1
+
+task1.1
+
+
+",
+  "cwd": "<PROJECT_ROOT>",
+  "data": Object {},
+  "history": Array [],
+  "messages": Array [],
+}
+`;
+
+exports[`noteRefV2 WHEN parse header AND parse from start header "MD_REGULAR: THEN parse start header and sub headers: REGULAR" 2`] = `
+VFile {
+  "contents": "# Foo
+
+# Foo Bar
+
+## Header 1
+
+task1
+
+### Header 1.1
+
+task1.1
+
 
 ",
   "cwd": "<PROJECT_ROOT>",
@@ -147,7 +498,7 @@ VFile {
 
 exports[`noteRefV2 common cases compile "HTML: XVAULT_CASE" 1`] = `
 VFile {
-  "contents": "# Root
+  "contents": "# One
 
 <div class=\\"portal-container\\">
 <div class=\\"portal-head\\">
@@ -162,12 +513,6 @@ VFile {
 
 
 </div></div>
-
-* * *
-
-**Children**
-
-1. [One](one.html)
 
 ",
   "cwd": "<PROJECT_ROOT>",
@@ -260,7 +605,7 @@ VFile {
 
 **Children**
 
-1. [Ch1](foo.ch1.html)
+1. error with link
 
 ",
   "cwd": "<PROJECT_ROOT>",
@@ -292,7 +637,7 @@ VFile {
 
 **Children**
 
-1. [Ch1](foo.ch1.html)
+1. error with link
 
 ",
   "cwd": "<PROJECT_ROOT>",
@@ -506,7 +851,7 @@ VFile {
 
 exports[`noteRefV2 common cases compile "MD_DENDRON: XVAULT_CASE" 1`] = `
 VFile {
-  "contents": "# Root
+  "contents": "# One
 
 ![[dendron://vault2/two]]
 
@@ -570,15 +915,12 @@ VFile {
 <div class=\\"portal-head\\">
 <div class=\\"portal-backlink\\" >
 <div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Foo</span></div>
-<a href=\\"foo.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+<a href=\\"foo\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
 </div>
 </div>
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-## Header2
+<div class=\\"portal-parent-fader-bottom\\"></div>## Header2
 
 task2
 
@@ -603,380 +945,14 @@ VFile {
 <div class=\\"portal-head\\">
 <div class=\\"portal-backlink\\" >
 <div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Foo</span></div>
-<a href=\\"foo.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
+<a href=\\"foo\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
 </div>
 </div>
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-## Header2
+<div class=\\"portal-parent-fader-bottom\\"></div>## Header2
 
 task2
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: WITH_FM_TITLE" 1`] = `
-VFile {
-  "contents": "# Foo
-
-# Foo Bar
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Foo</span></div>
-<a href=\\"foo.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-## Header2
-
-task2
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: WITH_NOTE_LINK_TITLE" 1`] = `
-VFile {
-  "contents": "# Foo
-
-# Foo Bar
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Ch1</span></div>
-<a href=\\"foo.ch1.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-## Header2
-
-task2
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: WITH_PUBLISHING" 1`] = `
-VFile {
-  "contents": "# Root
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Bar</span></div>
-<a href=\\"bar.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-two content
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: XVAULT_CASE" 1`] = `
-VFile {
-  "contents": "# Root
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Two</span></div>
-<a href=\\"two.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-two content
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: recursive" 1`] = `
-VFile {
-  "contents": "# Root
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Foo</span></div>
-<a href=\\"foo.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">One</span></div>
-<a href=\\"foo.one.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-# Foo.One
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Two</span></div>
-<a href=\\"foo.two.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-# Foo.Two
-
-blah
-
-
-</div></div>
-Regular wikilink: [Two](foo.two.md)
-
-
-</div></div>
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: regular" 1`] = `
-VFile {
-  "contents": "# Foo
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Foo</span></div>
-<a href=\\"foo.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-foo body
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: tags section shouldn't be included in references" 1`] = `
-VFile {
-  "contents": "# Foo
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Ch1</span></div>
-<a href=\\"foo.ch1.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-Sint minus fuga omnis non.
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: tags section shouldn't be included in references" 2`] = `
-VFile {
-  "contents": "# Foo
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Ch1</span></div>
-<a href=\\"foo.ch1.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-Sint minus fuga omnis non.
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: tags section shouldn't be included in references" 3`] = `
-VFile {
-  "contents": "# Foo
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">Ch1</span></div>
-<a href=\\"foo.ch1.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-Sint minus fuga omnis non.
-
-
-</div></div>
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`noteRefV2 common cases compile "MD_ENHANCED_PREVIEW: wildcard" 1`] = `
-VFile {
-  "contents": "# Root
-
-<div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">01</span></div>
-<a href=\\"journal.2020.08.01.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-journal1
-
-
-</div></div><div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">02</span></div>
-<a href=\\"journal.2020.08.02.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-journal2
-
-
-</div></div><div class=\\"portal-container\\">
-<div class=\\"portal-head\\">
-<div class=\\"portal-backlink\\" >
-<div class=\\"portal-title\\">From <span class=\\"portal-text-title\\">03</span></div>
-<a href=\\"journal.2020.08.03.md\\" class=\\"portal-arrow\\">Go to text <span class=\\"right-arrow\\">→</span></a>
-</div>
-</div>
-<div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
-<div class=\\"portal-parent-fader-top\\"></div>
-<div class=\\"portal-parent-fader-bottom\\"></div>  
-
-
-journal3
 
 
 </div></div>
@@ -1029,7 +1005,7 @@ task2
 
 exports[`noteRefV2 common cases compile "MD_REGULAR: XVAULT_CASE" 1`] = `
 VFile {
-  "contents": "# Root
+  "contents": "# One
 
 two content
 
@@ -1168,9 +1144,9 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start1\\" href=\\"#^start1\\"></a>Aut id architecto quia. </p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end1\\" href=\\"#^end1\\"></a>Sapiente sed accusamus eum. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin1\\" href=\\"#^fin1\\"></a>Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end2\\" href=\\"#^end2\\"></a>Reprehenderit doloribus. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin2\\" href=\\"#^fin2\\"></a>Reprehenderit doloribus. </p>
 </div></div><p></p><p></p>
 <hr>
 <strong>Children</strong>
@@ -1208,9 +1184,9 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start1\\" href=\\"#^start1\\"></a>Aut id architecto quia. </p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end1\\" href=\\"#^end1\\"></a>Sapiente sed accusamus eum. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin1\\" href=\\"#^fin1\\"></a>Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end2\\" href=\\"#^end2\\"></a>Reprehenderit doloribus. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin2\\" href=\\"#^fin2\\"></a>Reprehenderit doloribus. </p>
 </div></div><p></p><p></p>
 <hr>
 <strong>Children</strong>
@@ -1248,9 +1224,9 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start1\\" href=\\"#^start1\\"></a>Aut id architecto quia. </p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end1\\" href=\\"#^end1\\"></a>Sapiente sed accusamus eum. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin1\\" href=\\"#^fin1\\"></a>Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end2\\" href=\\"#^end2\\"></a>Reprehenderit doloribus. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin2\\" href=\\"#^fin2\\"></a>Reprehenderit doloribus. </p>
 </div></div><p></p><p></p>
 <hr>
 <strong>Children</strong>
@@ -1288,9 +1264,9 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start1\\" href=\\"#^start1\\"></a>Aut id architecto quia. </p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end1\\" href=\\"#^end1\\"></a>Sapiente sed accusamus eum. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin1\\" href=\\"#^fin1\\"></a>Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end2\\" href=\\"#^end2\\"></a>Reprehenderit doloribus. </p>
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin2\\" href=\\"#^fin2\\"></a>Reprehenderit doloribus. </p>
 </div></div><p></p><p></p>
 <hr>
 <strong>Children</strong>
@@ -2109,7 +2085,7 @@ VFile {
 </ul>
 <p>Sapiente sed accusamus eum.</p>
 <ul>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2143,7 +2119,7 @@ VFile {
 </ul>
 <p>Sapiente sed accusamus eum.</p>
 <ul>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2228,7 +2204,7 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><h1 id=\\"start\\">start</h1>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non.
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non.
 Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
 <hr>
@@ -2257,7 +2233,7 @@ VFile {
 <div id=\\"portal-parent-anchor\\" class=\\"portal-parent\\" markdown=\\"1\\">
 <div class=\\"portal-parent-fader-top\\"></div>
 <div class=\\"portal-parent-fader-bottom\\"></div><h1 id=\\"start\\">start</h1>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non.
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non.
 Sapiente sed accusamus eum. </p>
 </div></div><p></p><p></p>
 <hr>
@@ -2289,7 +2265,7 @@ VFile {
 <li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start\\" href=\\"#^start\\"></a>Ullam optio est quia. </li>
 <li>Reprehenderit doloribus.</li>
 </ul>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sapiente sed accusamus eum.
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sapiente sed accusamus eum.
 Sint minus fuga omnis non. </p>
 </div></div><p></p><p></p>
 <hr>
@@ -2321,7 +2297,7 @@ VFile {
 <li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start\\" href=\\"#^start\\"></a>Ullam optio est quia. </li>
 <li>Reprehenderit doloribus.</li>
 </ul>
-<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sapiente sed accusamus eum.
+<p><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sapiente sed accusamus eum.
 Sint minus fuga omnis non. </p>
 </div></div><p></p><p></p>
 <hr>
@@ -2353,7 +2329,7 @@ VFile {
 Sapiente sed accusamus eum. </p>
 <ul>
 <li>Reprehenderit doloribus.</li>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Ullam optio est quia. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Ullam optio est quia. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2385,7 +2361,7 @@ VFile {
 Sapiente sed accusamus eum. </p>
 <ul>
 <li>Reprehenderit doloribus.</li>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Ullam optio est quia. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Ullam optio est quia. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2524,7 +2500,7 @@ VFile {
 <div class=\\"portal-parent-fader-bottom\\"></div><ul>
 <li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start\\" href=\\"#^start\\"></a>Ullam optio est quia. </li>
 <li>Reprehenderit doloribus.</li>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2555,7 +2531,7 @@ VFile {
 <div class=\\"portal-parent-fader-bottom\\"></div><ul>
 <li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^start\\" href=\\"#^start\\"></a>Ullam optio est quia. </li>
 <li>Reprehenderit doloribus.</li>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </div></div><p></p><p></p>
 <hr>
@@ -2591,7 +2567,7 @@ VFile {
 </li>
 <li>Reprehenderit doloribus.
 <ul>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </li>
 </ul>
@@ -2629,7 +2605,7 @@ VFile {
 </li>
 <li>Reprehenderit doloribus.
 <ul>
-<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^end\\" href=\\"#^end\\"></a>Sint minus fuga omnis non. </li>
+<li><a aria-hidden=\\"true\\" class=\\"block-anchor anchor-heading icon-link\\" id=\\"^fin\\" href=\\"#^fin\\"></a>Sint minus fuga omnis non. </li>
 </ul>
 </li>
 </ul>

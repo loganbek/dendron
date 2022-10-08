@@ -1,8 +1,4 @@
-import {
-  ConfigUtils,
-  IntermediateDendronConfig,
-  NoteProps,
-} from "@dendronhq/common-all";
+import { NoteProps } from "@dendronhq/common-all";
 import {
   createLogger,
   engineHooks,
@@ -17,7 +13,6 @@ export const useCurrentTheme = () => {
     "light"
   );
   React.useEffect(() => {
-    // @ts-ignore
     window.currentTheme && setCurrentTheme(window.currentTheme);
     // @ts-ignore
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,19 +38,28 @@ export const useWorkspaceProps = (): [WorkspaceProps] => {
 
 /**
  * Body of current note
- * @param param0
+ * @param param0 - if previewHTML is passed in, just return that HTML directly
+ * and don't do any additional rendering.
  * @returns
  */
 export const useRenderedNoteBody = ({
   engine,
   noteProps,
   workspace,
-}: DendronProps & { noteProps?: NoteProps }) => {
+  previewHTML,
+}: DendronProps & { noteProps?: NoteProps; previewHTML?: string }) => {
   const { id: noteId, contentHash } = noteProps || {
     id: undefined,
     contentHash: undefined,
   };
-  const noteContent = noteId ? engine.notesRendered[noteId] : undefined;
+
+  let noteContent: string | undefined;
+
+  if (previewHTML) {
+    noteContent = previewHTML;
+  } else {
+    noteContent = noteId ? engine.notesRendered[noteId] : undefined;
+  }
   const renderedNoteContentHash = React.useRef<string>();
   const dispatch = engineHooks.useEngineAppDispatch();
 
@@ -64,7 +68,10 @@ export const useRenderedNoteBody = ({
       return;
     }
     // if no "render to markdown" has happended or the note body changed
-    if (!noteContent || contentHash !== renderedNoteContentHash.current) {
+    if (
+      !previewHTML &&
+      (!noteContent || contentHash !== renderedNoteContentHash.current)
+    ) {
       renderedNoteContentHash.current = contentHash;
       dispatch(
         engineSlice.renderNote({ ...workspace, id: noteId, note: noteProps })
@@ -78,40 +85,39 @@ export const useRenderedNoteBody = ({
 };
 
 /**
- * Initialize mermaid if it is enabled
+ * Initialize mermaid if it is enabled in the config file.
+ * Converts all divs with the class "mermaid" into svgs.
+ *
+ * https://mermaid-js.github.io/mermaid/#/
  */
 export const useMermaid = ({
-  config,
   themeType,
   mermaid,
   noteRenderedBody,
 }: {
-  config?: IntermediateDendronConfig;
   themeType: "light" | "dark";
   mermaid: Mermaid;
   noteRenderedBody?: string;
 }) => {
   React.useEffect(() => {
     const logger = createLogger("useMermaid");
-    if (config && ConfigUtils.getPreview(config)?.enableMermaid) {
-      mermaid.initialize({
-        startOnLoad: true,
-        // Cast here because the type definitions seem to be incorrect. I can't
-        // get a value for the mermaid Theme enum, it's always undefined at
-        // runtime.
-        theme: (themeType === "light" ? "forest" : "dark") as any,
-      });
-      // use for debugging
-      // @ts-ignore
-      window._mermaid = mermaid;
-      // @ts-ignore
-      mermaid.init();
-      logger.info({ msg: "init mermaid library", themeType });
-    } else {
-      logger.info("skip mermaid library");
-    }
+
+    mermaid.initialize({
+      startOnLoad: true,
+      // Cast here because the type definitions seem to be incorrect. I can't
+      // get a value for the mermaid Theme enum, it's always undefined at
+      // runtime.
+      theme: (themeType === "light" ? "forest" : "dark") as any,
+    });
+    // use for debugging
+    // @ts-ignore
+    window._mermaid = mermaid;
+    // @ts-ignore
+    mermaid.init();
+    logger.info({ msg: "init mermaid library", themeType });
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, noteRenderedBody, themeType]);
+  }, [noteRenderedBody, themeType]);
 };
 
 /**

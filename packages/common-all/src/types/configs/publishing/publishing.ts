@@ -1,4 +1,5 @@
-import { DVault } from "../../workspace";
+import { DVault } from "../../DVault";
+import { GiscusConfig } from "./giscus";
 import { GithubConfig, genDefaultGithubConfig } from "./github";
 import { SEOConfig, genDefaultSEOConfig } from "./seo";
 
@@ -6,6 +7,11 @@ export enum Theme {
   DARK = "dark",
   LIGHT = "light",
   CUSTOM = "custom",
+}
+
+export enum SearchMode {
+  SEARCH = "search",
+  LOOKUP = "lookup",
 }
 
 /**
@@ -16,7 +22,6 @@ export type DendronPublishingConfig = {
   enableHierarchyDisplay?: boolean; // TODO: split
   hierarchyDisplayTitle?: string; // TODO: split
   enableNoteTitleForLink?: boolean; // TODO: split
-  enableMermaid?: boolean;
   enablePrettyRefs?: boolean;
   enableBackLinks?: boolean;
   enableKatex?: boolean;
@@ -49,6 +54,9 @@ export type DendronPublishingConfig = {
   cognitoClientId?: string;
   enablePrettyLinks: boolean;
   siteBanner?: string;
+  giscus?: GiscusConfig;
+  sidebarPath?: string | false;
+  searchMode?: SearchMode;
 };
 
 export type CleanDendronPublishingConfig = DendronPublishingConfig &
@@ -93,7 +101,6 @@ export function genDefaultPublishingConfig(): DendronPublishingConfig {
   return {
     enableFMTitle: true,
     enableNoteTitleForLink: true,
-    enableMermaid: true,
     enablePrettyRefs: true,
     enableKatex: true,
     copyAssets: true,
@@ -108,5 +115,6 @@ export function genDefaultPublishingConfig(): DendronPublishingConfig {
     enableRandomlyColoredTags: true,
     enableTaskNotes: true,
     enablePrettyLinks: true,
+    searchMode: SearchMode.LOOKUP,
   };
 }

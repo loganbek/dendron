@@ -1,5 +1,5 @@
+/* eslint-disable no-await-in-loop */
 import {
-  CONSTANTS,
   DendronError,
   DEngineClient,
   DNodeUtils,
@@ -10,35 +10,34 @@ import {
   ErrorUtils,
   ERROR_SEVERITY,
   ERROR_STATUS,
+  genHash,
   IDendronError,
   isNotUndefined,
+  NoteChangeEntry,
+  NoteDicts,
   NoteDictsUtils,
   NoteProps,
   NotePropsByFnameDict,
   NotePropsByIdDict,
-  NoteDicts,
   NotesCacheEntry,
   NotesCacheEntryMap,
   NoteUtils,
   SchemaUtils,
   stringifyError,
-  VaultUtils,
-  NoteChangeEntry,
-} from "@dendronhq/common-all";
-import {
-  DLogger,
-  genHash,
-  globMatch,
   string2Note,
-  vault2Path,
-} from "@dendronhq/common-server";
+  globMatch,
+  IntermediateDendronConfig,
+  asyncLoopOneAtATime,
+  SchemaModuleDict,
+} from "@dendronhq/common-all";
+import { DConfig, DLogger, vault2Path } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
-import { createCacheEntry } from "../../utils";
+import { createCacheEntry, EngineUtils } from "../../utils";
 import { ParserBase } from "./parseBase";
 import { NotesFileSystemCache } from "../../cache/notesFileSystemCache";
-import { AnchorUtils, LinkUtils } from "../../markdown/remark/utils";
+import { SQLiteMetadataStore } from "../SQLiteMetadataStore";
 
 export type FileMeta = {
   // file name: eg. foo.md, name = foo
@@ -69,7 +68,6 @@ function getFileMeta(fpaths: string[]): FileMetaDict {
 export class NoteParser extends ParserBase {
   public cache: NotesFileSystemCache;
   private engine: DEngineClient;
-  private maxNoteLength: number;
 
   constructor(
     public opts: {
@@ -77,18 +75,20 @@ export class NoteParser extends ParserBase {
       cache: NotesFileSystemCache;
       engine: DEngineClient;
       logger: DLogger;
-      maxNoteLength: number;
     }
   ) {
     super(opts);
     this.cache = opts.cache;
     this.engine = opts.engine;
-    this.maxNoteLength = opts.maxNoteLength;
   }
 
   async parseFiles(
     allPaths: string[],
-    vault: DVault
+    vault: DVault,
+    schemas: SchemaModuleDict,
+    opts?: {
+      useSQLiteMetadataStore?: boolean;
+    }
   ): Promise<{
     notesById: NotePropsByIdDict;
     cacheUpdates: NotesCacheEntryMap;
@@ -103,11 +103,13 @@ export class NoteParser extends ParserBase {
       notesById,
       notesByFname,
     };
+    const wsRoot = this.engine.wsRoot;
     this.logger.info({ ctx, msg: "enter", vault });
     const cacheUpdates: { [key: string]: NotesCacheEntry } = {};
     // Keep track of which notes in cache no longer exist
     const unseenKeys = this.cache.getCacheEntryKeys();
     const errors: IDendronError<any>[] = [];
+    const config = DConfig.readConfigSync(wsRoot);
 
     // get root note
     if (_.isUndefined(fileMetaDict[1])) {
@@ -123,10 +125,11 @@ export class NoteParser extends ParserBase {
         status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
       });
     }
-    const rootProps = this.parseNoteProps({
+    const rootProps = await this.parseNoteProps({
       fileMeta: rootFile,
       addParent: false,
       vault,
+      config,
       errors,
     });
     const rootNote = rootProps.changeEntries[0].note;
@@ -140,38 +143,44 @@ export class NoteParser extends ParserBase {
 
     // get root of hiearchies
     let lvl = 2;
-    let prevNodes: NoteProps[] = fileMetaDict[1]
-      // don't count root node
-      .filter((n) => n.fpath !== "root.md")
-      .flatMap((ent) => {
-        try {
-          const out = this.parseNoteProps({
-            fileMeta: ent,
-            addParent: false,
-            vault,
-            errors,
-          });
-          const parsedNote = out.changeEntries[0].note;
-          unseenKeys.delete(parsedNote.fname);
-          if (!out.matchHash) {
-            cacheUpdates[parsedNote.fname] = createCacheEntry({
-              noteProps: parsedNote,
-              hash: out.noteHash,
+    let prevNodes: NoteProps[] = (
+      await asyncLoopOneAtATime(
+        fileMetaDict[1]
+          // don't count root node
+          .filter((n) => n.fpath !== "root.md"),
+
+        async (ent) => {
+          try {
+            const out = await this.parseNoteProps({
+              fileMeta: ent,
+              addParent: false,
+              vault,
+              config,
+              errors,
             });
+            const parsedNote = out.changeEntries[0].note;
+            unseenKeys.delete(parsedNote.fname);
+            if (!out.matchHash) {
+              cacheUpdates[parsedNote.fname] = createCacheEntry({
+                noteProps: parsedNote,
+                hash: out.noteHash,
+              });
+            }
+            return parsedNote;
+          } catch (err: any) {
+            const dendronError = ErrorFactory.wrapIfNeeded(err);
+            // A fatal error would kill the initialization
+            dendronError.severity = ERROR_SEVERITY.MINOR;
+            dendronError.message =
+              `Failed to read ${ent.fpath} in ${vault.fsPath}: ` +
+              dendronError.message;
+            errors.push(dendronError);
+            return;
           }
-          return parsedNote;
-        } catch (err: any) {
-          const dendronError = ErrorFactory.wrapIfNeeded(err);
-          // A fatal error would kill the initialization
-          dendronError.severity = ERROR_SEVERITY.MINOR;
-          dendronError.message =
-            `Failed to read ${ent.fpath} in ${vault.fsPath}: ` +
-            dendronError.message;
-          errors.push(dendronError);
-          return;
         }
-      })
-      .filter(isNotUndefined);
+      )
+    ).filter(isNotUndefined);
+
     prevNodes.forEach((ent) => {
       DNodeUtils.addChild(rootNote, ent);
 
@@ -194,62 +203,67 @@ export class NoteParser extends ParserBase {
 
     // get everything else
     while (lvl <= maxLvl) {
-      const currNodes: NoteProps[] = (fileMetaDict[lvl] || [])
-        .filter((ent) => {
-          return !globMatch(["root.*"], ent.fpath);
-        })
-        // eslint-disable-next-line no-loop-func
-        .flatMap((ent) => {
-          try {
-            const resp = this.parseNoteProps({
-              fileMeta: ent,
-              noteDicts: { notesById, notesByFname },
-              addParent: true,
-              vault,
-              errors,
-            });
-            const parsedNote = resp.changeEntries[0].note;
-            unseenKeys.delete(parsedNote.fname);
-
-            // this indicates that the contents of the note was different
-            // then what was in the cache. need to update later ^cache-update
-            if (!resp.matchHash) {
-              cacheUpdates[parsedNote.fname] = createCacheEntry({
-                noteProps: parsedNote,
-                hash: resp.noteHash,
+      const currNodes: NoteProps[] = (
+        await asyncLoopOneAtATime(
+          (fileMetaDict[lvl] || []).filter((ent) => {
+            return !globMatch(["root.*"], ent.fpath);
+          }),
+          async (ent) => {
+            try {
+              const resp = await this.parseNoteProps({
+                fileMeta: ent,
+                noteDicts: { notesById, notesByFname },
+                addParent: true,
+                vault,
+                config,
+                errors,
               });
-            }
+              const parsedNote = resp.changeEntries[0].note;
+              unseenKeys.delete(parsedNote.fname);
 
-            // need to be inside this loop
-            // deal with `src/__tests__/enginev2.spec.ts`, with stubs/ test case
-            resp.changeEntries.forEach((ent) => {
-              const note = ent.note;
-              // Check for duplicate IDs when adding created notes to the map
-              if (ent.status === "create" && notesById[note.id] !== undefined) {
-                const duplicate = notesById[note.id];
-                errors.push(
-                  new DuplicateNoteError({
-                    noteA: duplicate,
-                    noteB: note,
-                  })
-                );
+              // this indicates that the contents of the note was different
+              // then what was in the cache. need to update later ^cache-update
+              if (!resp.matchHash) {
+                cacheUpdates[parsedNote.fname] = createCacheEntry({
+                  noteProps: parsedNote,
+                  hash: resp.noteHash,
+                });
               }
 
-              NoteDictsUtils.add(note, noteDicts);
-            });
-            return parsedNote;
-          } catch (err: any) {
-            const dendronError = ErrorFactory.wrapIfNeeded(err);
-            // A fatal error would kill the initialization
-            dendronError.severity = ERROR_SEVERITY.MINOR;
-            dendronError.message =
-              `Failed to read ${ent.fpath} in ${vault.fsPath}: ` +
-              dendronError.message;
-            errors.push(dendronError);
-            return undefined;
+              // need to be inside this loop
+              // deal with `src/__tests__/enginev2.spec.ts`, with stubs/ test case
+              resp.changeEntries.forEach((ent) => {
+                const note = ent.note;
+                // Check for duplicate IDs when adding created notes to the map
+                if (
+                  ent.status === "create" &&
+                  notesById[note.id] !== undefined
+                ) {
+                  const duplicate = notesById[note.id];
+                  errors.push(
+                    new DuplicateNoteError({
+                      noteA: duplicate,
+                      noteB: note,
+                    })
+                  );
+                }
+
+                NoteDictsUtils.add(note, noteDicts);
+              });
+              return parsedNote;
+            } catch (err: any) {
+              const dendronError = ErrorFactory.wrapIfNeeded(err);
+              // A fatal error would kill the initialization
+              dendronError.severity = ERROR_SEVERITY.MINOR;
+              dendronError.message =
+                `Failed to read ${ent.fpath} in ${vault.fsPath}: ` +
+                dendronError.message;
+              errors.push(dendronError);
+              return undefined;
+            }
           }
-        })
-        .filter(isNotUndefined);
+        )
+      ).filter(isNotUndefined);
       lvl += 1;
       prevNodes = currNodes;
     }
@@ -259,12 +273,9 @@ export class NoteParser extends ParserBase {
     const domains = notesById[rootNote.id].children.map(
       (ent) => notesById[ent]
     );
-    const schemas = this.opts.store.schemas;
-    await Promise.all(
-      domains.map(async (d) => {
-        return SchemaUtils.matchDomain(d, notesById, schemas);
-      })
-    );
+    domains.map((d) => {
+      SchemaUtils.matchDomain(d, notesById, schemas);
+    });
     // Remove stale entries from cache
     unseenKeys.forEach((unseenKey) => {
       this.cache.drop(unseenKey);
@@ -272,12 +283,45 @@ export class NoteParser extends ParserBase {
 
     // OPT:make async and don't wait for return
     // Skip this if we found no notes, which means vault did not initialize
-    if (_.size(notesById) > 0) {
-      // TODO only write if there are changes
+    if (
+      (_.size(notesById) > 0 && this.cache.numCacheMisses > 0) ||
+      unseenKeys.size > 0
+    ) {
       this.cache.writeToFileSystem();
     }
 
     this.logger.info({ ctx, msg: "post:matchSchemas" });
+    if (opts?.useSQLiteMetadataStore) {
+      this.logger.info({ ctx, msg: "initialize metadata" });
+      if (await SQLiteMetadataStore.isVaultInitialized(vault)) {
+        this.logger.info({ ctx, msg: "adding update entries" });
+        // initialized, update based on cache
+        const updateDict: NotePropsByIdDict = {};
+        _.map(cacheUpdates, (v, _k) => {
+          // TODO: we need to figure out the right data type to insert into metadata store
+          updateDict[v.data.id] = v.data as NoteProps;
+        });
+        await SQLiteMetadataStore.bulkInsertAllNotes({
+          notesIdDict: updateDict,
+        });
+      } else {
+        this.logger.info({ ctx, msg: "updating all entries" });
+        // we never initialized this vault, initialize it now
+        try {
+          // create the vault
+          await SQLiteMetadataStore.prisma().dVault.create({
+            data: { fsPath: vault.fsPath, wsRoot },
+          });
+          // if vault is not initialized, bulk insert all note metadata into sqlite
+          await SQLiteMetadataStore.bulkInsertAllNotes({
+            notesIdDict: notesById,
+          });
+        } catch (err) {
+          this.logger.error({ ctx, msg: "issue doing bulk insert", vault });
+          throw err;
+        }
+      }
+    }
     return { notesById, cacheUpdates, errors };
   }
 
@@ -286,19 +330,20 @@ export class NoteParser extends ParserBase {
    * @param opts
    * @returns List of all notes added. If a note has no direct parents, stub notes are added instead
    */
-  parseNoteProps(opts: {
+  async parseNoteProps(opts: {
     fileMeta: FileMeta;
     noteDicts?: NoteDicts;
     parents?: NoteProps[];
     addParent: boolean;
     createStubs?: boolean;
     vault: DVault;
+    config: IntermediateDendronConfig;
     errors: IDendronError[];
-  }): {
+  }): Promise<{
     changeEntries: NoteChangeEntry[];
     noteHash: string;
     matchHash: boolean;
-  } {
+  }> {
     const cleanOpts = _.defaults(opts, {
       addParent: true,
       createStubs: true,
@@ -308,7 +353,7 @@ export class NoteParser extends ParserBase {
       },
       parents: [] as NoteProps[],
     });
-    const { fileMeta, noteDicts, vault, errors } = cleanOpts;
+    const { fileMeta, noteDicts, vault, config, errors } = cleanOpts;
     const ctx = "parseNoteProps";
     this.logger.debug({ ctx, msg: "enter", fileMeta });
     const wsRoot = this.opts.store.wsRoot;
@@ -324,10 +369,11 @@ export class NoteParser extends ParserBase {
         note: noteProps,
         noteHash,
         matchHash,
-      } = this.file2NoteWithCache({
+      } = await this.file2NoteWithCache({
         fpath: path.join(vpath, fileMeta.fpath),
         vault,
         errors,
+        config,
       }));
     } catch (_err: any) {
       if (!ErrorUtils.isDendronError(_err)) {
@@ -353,7 +399,6 @@ export class NoteParser extends ParserBase {
         note: noteProps,
         noteDicts,
         createStubs: cleanOpts.createStubs,
-        wsRoot: this.opts.store.wsRoot,
       });
       changeEntries = changeEntries.concat(changed);
     }
@@ -364,21 +409,23 @@ export class NoteParser extends ParserBase {
     };
   }
 
-  private file2NoteWithCache({
+  private async file2NoteWithCache({
     fpath,
     vault,
     toLowercase,
+    config,
     errors,
   }: {
     fpath: string;
     vault: DVault;
     toLowercase?: boolean;
+    config: IntermediateDendronConfig;
     errors: IDendronError[];
-  }): {
+  }): Promise<{
     note: NoteProps;
     matchHash: boolean;
     noteHash: string;
-  } {
+  }> {
     const content = fs.readFileSync(fpath, { encoding: "utf8" });
     const { name } = path.parse(fpath);
     const sig = genHash(content);
@@ -411,7 +458,12 @@ export class NoteParser extends ParserBase {
     note.contentHash = sig;
     // Link/anchor errors should be logged but not interfere with rest of parsing
     try {
-      this.updateLinksAndAnchors(note);
+      await EngineUtils.refreshNoteLinksAndAnchors({
+        note,
+        engine: this.engine,
+        silent: true,
+        config,
+      });
     } catch (_err: any) {
       errors.push(ErrorFactory.wrapIfNeeded(_err));
     }
@@ -422,63 +474,7 @@ export class NoteParser extends ParserBase {
         hash: note.contentHash,
       })
     );
+    this.cache.incrementCacheMiss();
     return { note, matchHash, noteHash: sig };
-  }
-
-  private updateLinksAndAnchors(note: NoteProps): void {
-    const ctx = "noteParser:updateLinksAndAnchors";
-    // Skip finding links/anchors if note is too long
-    if (
-      note.body.length >=
-      (this.maxNoteLength || CONSTANTS.DENDRON_DEFAULT_MAX_NOTE_LENGTH)
-    ) {
-      this.logger.info({
-        ctx,
-        msg: "Note too large, skipping",
-        note: NoteUtils.toLogObj(note),
-        length: note.body.length,
-      });
-      throw new DendronError({
-        message:
-          `Note "${note.fname}" in vault "${VaultUtils.getName(
-            note.vault
-          )}" is longer than ${
-            this.maxNoteLength || CONSTANTS.DENDRON_DEFAULT_MAX_NOTE_LENGTH
-          } characters, some features like backlinks may not work correctly for it. ` +
-          `You may increase "maxNoteLength" in "dendron.yml" to override this warning.`,
-        severity: ERROR_SEVERITY.MINOR,
-      });
-    }
-
-    try {
-      const links = LinkUtils.findLinks({
-        note,
-        engine: this.engine,
-      });
-      note.links = links;
-    } catch (err: any) {
-      const dendronError = ErrorFactory.wrapIfNeeded(err);
-      dendronError.message =
-        `Failed to read links in note ${note.fname}: ` + dendronError.message;
-      this.logger.error({
-        ctx,
-        error: dendronError,
-        note: NoteUtils.toLogObj(note),
-      });
-      throw dendronError;
-    }
-    try {
-      const anchors = AnchorUtils.findAnchors({
-        note,
-      });
-      note.anchors = anchors;
-      return;
-    } catch (err: any) {
-      const dendronError = ErrorFactory.wrapIfNeeded(err);
-      dendronError.message =
-        `Failed to read headers or block anchors in note ${note.fname}` +
-        dendronError.message;
-      throw dendronError;
-    }
   }
 }

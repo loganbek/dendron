@@ -1,15 +1,14 @@
 import { ConfigUtils } from "@dendronhq/common-all";
+import { DConfig } from "@dendronhq/common-server";
 import { AssertUtils, TestPresetEntryV4 } from "@dendronhq/common-test-utils";
+import { Parent, Text } from "@dendronhq/engine-server";
 import {
   BlockAnchor,
   DendronASTDest,
   DendronASTTypes,
   MDUtilsV5,
-  Parent,
-  ProcMode,
-  Text,
   UnistNode,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import { TestConfigUtils } from "../../..";
 import { runEngineTestV5 } from "../../../engine";
@@ -20,9 +19,7 @@ import { createProcForTest, createProcTests, ProcTests } from "./utils";
 const { getDescendantNode } = TestUnifiedUtils;
 
 function proc() {
-  return MDUtilsV5.procRehypeParse({
-    mode: ProcMode.NO_DATA,
-  });
+  return MDUtilsV5.procRemarkParseNoData({}, { dest: DendronASTDest.HTML });
 }
 
 function runAllTests(opts: { name: string; testCases: ProcTests[] }) {
@@ -124,11 +121,12 @@ describe("blockAnchors", () => {
     const anchor = "^my-block-anchor-0";
     const SIMPLE = createProcTests({
       name: "simple",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(anchor);
         return { resp };
@@ -167,11 +165,12 @@ describe("blockAnchors", () => {
 
     const END_OF_PARAGRAPH = createProcTests({
       name: "end of paragraph",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(`Lorem ipsum dolor amet ${anchor}`);
         return { resp };
@@ -197,11 +196,12 @@ describe("blockAnchors", () => {
 
     const AFTER_CODE_BLOCK = createProcTests({
       name: "after code block",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(
           ["```", "const x = 1;", "```", "", anchor].join("\n")
@@ -229,11 +229,12 @@ describe("blockAnchors", () => {
 
     const AFTER_TABLE = createProcTests({
       name: "after table",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
 
         const p = proc2.parse(

@@ -6,29 +6,24 @@ import minimatch from "minimatch";
 import path from "path";
 import querystring from "querystring";
 import semver from "semver";
-import { DateTime, LruCache, VaultUtils } from "..";
+import { DateTime, LruCache, NotePropsMeta, VaultUtils } from "..";
 import { COLORS_LIST } from "../colors";
+import SparkMD5 from "spark-md5";
 import {
   CompatUtils,
   CONFIG_TO_MINIMUM_COMPAT_MAPPING,
   ERROR_SEVERITY,
 } from "../constants";
+import { DENDRON_CONFIG } from "../constants/configs/dendronConfig";
 import { DendronError, ErrorMessages } from "../error";
-import {
-  DendronSiteConfig,
-  DHookDict,
-  DVault,
-  LegacyDuplicateNoteBehavior,
-  LegacyHierarchyConfig,
-  NoteChangeEntry,
-  NoteProps,
-} from "../types";
+import { DHookDict, NoteChangeEntry, NoteProps } from "../types";
 import { GithubConfig } from "../types/configs/publishing/github";
 import {
   DendronPublishingConfig,
   DuplicateNoteBehavior,
   genDefaultPublishingConfig,
   HierarchyConfig,
+  SearchMode,
 } from "../types/configs/publishing/publishing";
 import { TaskConfig } from "../types/configs/workspace/task";
 import {
@@ -39,6 +34,7 @@ import {
   genDefaultCommandConfig,
   genDefaultPreviewConfig,
   genDefaultWorkspaceConfig,
+  GiscusConfig,
   IntermediateDendronConfig,
   JournalConfig,
   LookupConfig,
@@ -49,9 +45,30 @@ import {
   StrictConfigV5,
 } from "../types/intermediateConfigs";
 import { isWebUri } from "../util/regex";
+import {
+  DendronSiteConfig,
+  LegacyDuplicateNoteBehavior,
+  LegacyHierarchyConfig,
+} from "../types/configs/dendronConfigLegacy";
+import { DVault } from "../types/DVault";
+
+export {
+  ok,
+  Ok,
+  err,
+  Err,
+  Result,
+  okAsync,
+  errAsync,
+  ResultAsync,
+  fromThrowable,
+  fromPromise,
+  fromSafePromise,
+} from "neverthrow";
 
 export * from "./lookup";
 export * from "./publishUtils";
+export * from "./vscode-utils";
 
 /**
  * Dendron utilities
@@ -457,6 +474,10 @@ export function debounceAsyncUntilComplete<I extends any[], O>({
   return { debouncedFn, states };
 }
 
+export function genHash(contents: any) {
+  return SparkMD5.hash(contents); // OR raw hash (binary string)
+}
+
 export class TagUtils {
   /** Removes `oldTag` from the frontmatter tags of `note` and replaces it with `newTag`, if any. */
   static replaceTag({
@@ -498,6 +519,12 @@ export class TagUtils {
  * ```
  */
 export type Optional<T, K extends keyof T> = Pick<Partial<T>, K> & Omit<T, K>;
+
+/**
+ * simple Option type
+ * See https://en.wikipedia.org/wiki/Option_type
+ */
+export type Option<T> = T | undefined;
 
 /** Makes a single property within a type required. */
 export type NonOptional<T, K extends keyof T> = Pick<Required<T>, K> &
@@ -566,6 +593,35 @@ export class ConfigUtils {
       preview: genDefaultPreviewConfig(),
       publishing: genDefaultPublishingConfig(),
     } as StrictConfigV5;
+  }
+
+  /**
+   * This is different from {@link genDefaultConfig}
+   * as it includes updated settings that we don't want to set as
+   * defaults for backward compatibility reasons
+   */
+  static genLatestConfig(
+    defaults?: DeepPartial<StrictConfigV5>
+  ): StrictConfigV5 {
+    const common = {
+      dev: {
+        enablePreviewV2: true,
+      },
+    };
+    const mergedPublishingConfig = _.merge(genDefaultPublishingConfig(), {
+      searchMode: SearchMode.SEARCH,
+    });
+    return _.merge(
+      {
+        version: 5,
+        ...common,
+        commands: genDefaultCommandConfig(),
+        workspace: { ...genDefaultWorkspaceConfig() },
+        preview: genDefaultPreviewConfig(),
+        publishing: mergedPublishingConfig,
+      } as StrictConfigV5,
+      defaults
+    );
   }
 
   // get
@@ -679,19 +735,6 @@ export class ConfigUtils {
       : ConfigUtils.getPreview(config).enableNoteTitleForLink;
   }
 
-  static getEnableMermaid(
-    config: IntermediateDendronConfig,
-    shouldApplyPublishRules?: boolean
-  ): boolean | undefined {
-    const publishRule = configIsV4(config)
-      ? ConfigUtils.getProp(config, "mermaid")
-      : ConfigUtils.getPublishing(config).enableMermaid;
-
-    return shouldApplyPublishRules
-      ? publishRule
-      : ConfigUtils.getPreview(config).enableMermaid;
-  }
-
   static getEnableKatex(
     config: IntermediateDendronConfig,
     shouldApplyPublishRules?: boolean
@@ -741,6 +784,12 @@ export class ConfigUtils {
     } else {
       return ConfigUtils.getPublishing(config).github;
     }
+  }
+
+  static getGiscusConfig(
+    config: IntermediateDendronConfig
+  ): GiscusConfig | undefined {
+    return ConfigUtils.getPublishing(config).giscus;
   }
 
   static getLogo(config: IntermediateDendronConfig): string | undefined {
@@ -842,7 +891,7 @@ export class ConfigUtils {
   static getEnablePrettyRefs(
     config: IntermediateDendronConfig,
     opts?: {
-      note?: NoteProps;
+      note?: NotePropsMeta;
       shouldApplyPublishRules?: boolean;
     }
   ): boolean | undefined {
@@ -864,7 +913,7 @@ export class ConfigUtils {
    */
   static getEnableChildLinks(
     _config: IntermediateDendronConfig,
-    opts?: { note?: NoteProps }
+    opts?: { note?: NotePropsMeta }
   ): boolean {
     if (
       opts &&
@@ -879,7 +928,7 @@ export class ConfigUtils {
   }
   static getEnableBackLinks(
     _config: IntermediateDendronConfig,
-    opts?: { note?: NoteProps; shouldApplyPublishingRules?: boolean }
+    opts?: { note?: NotePropsMeta; shouldApplyPublishingRules?: boolean }
   ): boolean {
     // check if note has override. takes precedence
     if (
@@ -921,7 +970,22 @@ export class ConfigUtils {
       this.getCommands(config).copyNoteLink.nonNoteFile?.anchorType || "block"
     );
   }
+  static getAliasMode(config: IntermediateDendronConfig) {
+    return this.getCommands(config).copyNoteLink.aliasMode;
+  }
 
+  static getVersion(config: IntermediateDendronConfig): number {
+    return config.version;
+  }
+
+  static getSearchMode(config: IntermediateDendronConfig): SearchMode {
+    const isConfigV4 = configIsV4(config);
+    const defaultMode = ConfigUtils.getPublishing(config).searchMode;
+    if (!isConfigV4 && defaultMode) {
+      return defaultMode;
+    }
+    return SearchMode.LOOKUP;
+  }
   // set
   static setProp<K extends keyof StrictConfigV4>(
     config: IntermediateDendronConfig,
@@ -1119,6 +1183,13 @@ export class ConfigUtils {
     _.set(config, "commands.copyNoteLink.nonNoteFile.anchorType", value);
   }
 
+  static setAliasMode(
+    config: IntermediateDendronConfig,
+    aliasMode: "title" | "none"
+  ) {
+    _.set(config, "commands.copyNoteLink.aliasMode", aliasMode);
+  }
+
   static configIsValid(opts: {
     clientVersion: string;
     configVersion: number | undefined;
@@ -1222,6 +1293,98 @@ export class ConfigUtils {
     }
     return foundDeprecatedPaths;
   }
+
+  static getConfigDescription = (conf: string) => {
+    return _.get(DENDRON_CONFIG, conf)?.desc;
+  };
+
+  /**
+   * Given an config object and an optional array of lodash property path,
+   * omit the properties from the object and flatten it
+   * The result will be a flat array of path-value pairs
+   *
+   * Each pair will contain a path and a value.
+   * The value is either a primitive value, or a stringified array.
+   *
+   * If comparing the array value of a config is unnecessary,
+   * make sure to add it to the omit path.
+   */
+  static flattenConfigObject(opts: { obj: Object; omitPaths?: string[] }) {
+    const { obj, omitPaths } = opts;
+    const objDeepCopy = _.cloneDeep(obj);
+    if (omitPaths && omitPaths.length > 0) {
+      omitPaths.forEach((path) => {
+        _.unset(objDeepCopy, path);
+      });
+    }
+
+    const accumulator: { path: string; value: any }[] = [];
+    const flattenToPathValuePairs = (opts: {
+      obj: Object;
+      parent?: string;
+    }) => {
+      const { obj, parent } = opts;
+      const entries = _.entries(obj);
+      entries.forEach((entry) => {
+        const [key, value] = entry;
+        const pathSoFar = `${parent ? `${parent}.` : ""}`;
+        if (_.isObject(value) && !_.isArrayLikeObject(value)) {
+          flattenToPathValuePairs({
+            obj: _.get(obj, key),
+            parent: `${pathSoFar}${key}`,
+          });
+        } else if (_.isArrayLikeObject(value)) {
+          accumulator.push({
+            path: `${pathSoFar}${key}`,
+            value: JSON.stringify(value),
+          });
+        } else {
+          accumulator.push({
+            path: `${pathSoFar}${key}`,
+            value,
+          });
+        }
+      });
+    };
+    flattenToPathValuePairs({ obj: objDeepCopy });
+    return accumulator;
+  }
+
+  /**
+   * Given a config, find the difference compared to the default.
+   *
+   * This is used to track changes from the default during activation.
+   */
+  static findDifference(opts: { config: IntermediateDendronConfig }) {
+    const { config } = opts;
+    if (configIsV4(config)) {
+      // don't track diff if V4. we are deprecating it soon.
+      return [];
+    }
+
+    const defaultConfig = ConfigUtils.genDefaultConfig();
+    const omitPaths = [
+      "workspace.workspaces",
+      "workspace.vaults",
+      "workspace.seeds",
+      "dev",
+    ];
+
+    const flatConfigObject = ConfigUtils.flattenConfigObject({
+      obj: config,
+      omitPaths,
+    });
+    const flatDefaultConfigObject = ConfigUtils.flattenConfigObject({
+      obj: defaultConfig,
+      omitPaths,
+    });
+    const diff = _.differenceWith(
+      flatConfigObject,
+      flatDefaultConfigObject,
+      _.isEqual
+    );
+    return diff;
+  }
 }
 
 /**
@@ -1314,4 +1477,11 @@ export function extractNoteChangeEntryCounts(entries: NoteChangeEntry[]): {
     deletedCount: extractNoteChangeEntryCountByType(entries, "delete"),
     updatedCount: extractNoteChangeEntryCountByType(entries, "update"),
   };
+}
+
+export function globMatch(patterns: string[] | string, fname: string): boolean {
+  if (_.isString(patterns)) {
+    return minimatch(fname, patterns);
+  }
+  return _.some(patterns, (pattern) => minimatch(fname, pattern));
 }

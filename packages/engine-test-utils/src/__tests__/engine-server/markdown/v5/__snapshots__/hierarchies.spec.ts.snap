@@ -2,7 +2,7 @@
 
 exports[`WHEN enableChildLinks "HTML: enableChildLinks: PUBLISHING" 1`] = `
 VFile {
-  "contents": "<h1 id=\\"foo\\"><a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a>Foo</h1>
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
 <p>foo test</p>
 <hr>
 <strong>Children</strong>
@@ -18,8 +18,8 @@ VFile {
 
 exports[`WHEN enableHierarchyDisplay is set to false "HTML: enableHierarchyDisplay: PUBLISHING" 1`] = `
 VFile {
-  "contents": "<h1 id=\\"foo\\"><a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a>Foo</h1>
-<p><a href=\\"foo.ch1.html\\">Ch1</a></p>",
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
+<p><a href=\\"/foo.ch1.html\\">Ch1</a></p>",
   "cwd": "<PROJECT_ROOT>",
   "data": Object {},
   "history": Array [],
@@ -29,8 +29,8 @@ VFile {
 
 exports[`WHEN enableHierarchyDisplay is set to true "HTML: enableHierarchyDisplay: PUBLISHING" 1`] = `
 VFile {
-  "contents": "<h1 id=\\"foo\\"><a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a>Foo</h1>
-<p><a href=\\"foo.ch1.html\\">Ch1</a></p>
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
+<p><a href=\\"/foo.ch1.html\\">Ch1</a></p>
 <hr>
 <strong>Children</strong>
 <ol>
@@ -45,8 +45,8 @@ VFile {
 
 exports[`WHEN hierarchyDisplayTitle is set to 'Better Children'  "HTML: hierarchyDisplayTitle: PUBLISHING" 1`] = `
 VFile {
-  "contents": "<h1 id=\\"foo\\"><a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a>Foo</h1>
-<p><a href=\\"foo.ch1.html\\">Ch1</a></p>
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
+<p><a href=\\"/foo.ch1.html\\">Ch1</a></p>
 <hr>
 <strong>Better Children</strong>
 <ol>
@@ -61,7 +61,7 @@ VFile {
 
 exports[`WHEN note enableChildLinks = false "HTML: noEnableChildLinks: PUBLISHING" 1`] = `
 VFile {
-  "contents": "<h1 id=\\"foo\\"><a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a>Foo</h1>
+  "contents": "<h1 id=\\"foo\\">Foo<a aria-hidden=\\"true\\" class=\\"anchor-heading icon-link\\" href=\\"#foo\\"></a></h1>
 <p>foo test</p>",
   "cwd": "<PROJECT_ROOT>",
   "data": Object {},

@@ -32,11 +32,7 @@ async function getNote(opts: { fname: string }) {
   const { engine, vaults } = ExtensionProvider.getDWorkspace();
   const { fname } = opts;
 
-  const note = NoteUtils.getNoteByFnameFromEngine({
-    fname,
-    engine,
-    vault: vaults[0],
-  })!;
+  const note = (await engine.findNotesMeta({ fname, vault: vaults[0] }))[0];
   const editor = await new WSUtilsV2(ExtensionProvider.getExtension()).openNote(
     note
   );
@@ -378,6 +374,13 @@ suite("GIVEN a text document with decorations", function () {
               "![[#^anchor-not-exists]]",
               "![[#^anchor-1:#*]]",
               "![[#^anchor-not-exists]]",
+              "[[#^begin]]",
+              "[[#^end]]",
+              "![[#^begin]]",
+              "![[#^end]]",
+              "![[#^begin:#^end]]",
+              "![[#^anchor-1:#^end]]",
+              "![[#^begin:#^anchor-1]]",
             ].join("\n"),
             vault: vaults[0],
             wsRoot,
@@ -393,20 +396,24 @@ suite("GIVEN a text document with decorations", function () {
           const wikilinkDecorations = allDecorations!.get(
             EDITOR_DECORATION_TYPES.wikiLink
           );
-          expect(wikilinkDecorations!.length).toEqual(3);
-          expect(
-            isTextDecorated("[[#^anchor-1]]", wikilinkDecorations!, document)
-          ).toBeTruthy();
-          expect(
-            isTextDecorated("![[#^anchor-1]]", wikilinkDecorations!, document)
-          ).toBeTruthy();
-          expect(
-            isTextDecorated(
-              "![[#^anchor-1:#*]]",
-              wikilinkDecorations!,
-              document
-            )
-          ).toBeTruthy();
+          expect(wikilinkDecorations!.length).toEqual(10);
+          const shouldBeDecorated = [
+            "[[#^anchor-1]]",
+            "![[#^anchor-1]]",
+            "![[#^anchor-1:#*]]",
+            "[[#^begin]]",
+            "[[#^end]]",
+            "![[#^begin]]",
+            "![[#^end]]",
+            "![[#^begin:#^end]]",
+            "![[#^anchor-1:#^end]]",
+            "![[#^begin:#^anchor-1]]",
+          ];
+          shouldBeDecorated.forEach((text) => {
+            expect(
+              isTextDecorated(text, wikilinkDecorations!, document)
+            ).toBeTruthy();
+          });
 
           const brokenWikilinkDecorations = allDecorations!.get(
             EDITOR_DECORATION_TYPES.brokenWikilink
@@ -678,7 +685,7 @@ suite("GIVEN a text document with decorations", function () {
         test("THEN don't warn for schemas", async () => {
           const { wsRoot } = ExtensionProvider.getDWorkspace();
           const engine = ExtensionProvider.getEngine();
-          const schema = engine.schemas.root;
+          const schema = (await engine.getSchema("root")).data!;
           const schemaFile = path.join(
             wsRoot,
             schema.vault.fsPath,

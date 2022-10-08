@@ -15,11 +15,11 @@ suite("notes", function () {
       ctx,
       preSetupHook: ENGINE_HOOKS.setupBasic,
       onInit: async ({ engine }) => {
-        const note = engine.notes["foo"];
+        const note = (await engine.getNoteMeta("foo")).data!;
         await WSUtils.openNote(note);
         await new GoDownCommand().run({ noConfirm: true });
         const editor = VSCodeUtils.getActiveTextEditor();
-        const activeNote = WSUtils.getNoteFromDocument(editor!.document);
+        const activeNote = await WSUtils.getNoteFromDocument(editor!.document);
         expect(activeNote?.fname).toEqual("foo.ch1");
 
         done();

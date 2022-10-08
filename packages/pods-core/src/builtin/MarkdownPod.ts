@@ -7,18 +7,24 @@ import {
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { cleanFileName, readMD, vault2Path } from "@dendronhq/common-server";
+import {
+  cleanFileName,
+  DConfig,
+  readMD,
+  vault2Path,
+} from "@dendronhq/common-server";
 import {
   DendronASTDest,
   DendronASTNode,
   DendronASTTypes,
+  getParsingDependencyDicts,
   Image,
   Link,
   MDUtilsV5,
   RemarkUtils,
   selectAll,
   WikiLinkNoteV4,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import fs from "fs-extra";
 import klaw, { Item } from "klaw";
 import _ from "lodash";
@@ -473,10 +479,13 @@ export class MarkdownImportPod extends ImportPod<MarkdownImportPodConfig> {
           const noteDirlevel = note.fname.split(".").length;
           const siblingNotes = hDict[noteDirlevel];
           const proc = MDUtilsV5.procRemarkFull({
-            engine,
+            noteToRender: note,
             fname: note.fname,
             vault: note.vault,
+            vaults: engine.vaults,
             dest: DendronASTDest.MD_DENDRON,
+            config: DConfig.readConfigSync(engine.wsRoot),
+            wsRoot: engine.wsRoot,
           });
 
           const tree = proc.parse(note.body) as DendronASTNode;
@@ -540,15 +549,26 @@ export class MarkdownPublishPod extends PublishPod<MarkdownPublishPodConfig> {
   async plant(opts: PublishPodPlantOpts) {
     const { engine, note, config, dendronConfig } = opts;
     const { wikiLinkToURL = false } = config;
+
+    const noteCacheForRenderDict = await getParsingDependencyDicts(
+      note,
+      engine,
+      config,
+      engine.vaults
+    );
+
     let remark = MDUtilsV5.procRemarkFull({
+      noteToRender: note,
+      noteCacheForRenderDict,
       dest: DendronASTDest.MD_REGULAR,
       config: {
-        ...engine.config,
+        ...DConfig.readConfigSync(engine.wsRoot),
         usePrettyRefs: false,
       },
-      engine,
       fname: note.fname,
       vault: note.vault,
+      vaults: engine.vaults,
+      wsRoot: engine.wsRoot,
     });
     if (wikiLinkToURL && !_.isUndefined(dendronConfig)) {
       remark = remark.use(

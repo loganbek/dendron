@@ -3,19 +3,19 @@ import {
   CLIEvents,
   DendronError,
   DVault,
-  error2PlainObject,
   ERROR_STATUS,
   NoteProps,
   NoteUtils,
+  stringifyError,
   TimeUtils,
 } from "@dendronhq/common-all";
 import {
+  DConfig,
   readYAML,
   SegmentClient,
   TelemetryStatus,
 } from "@dendronhq/common-server";
 import {
-  DConfig,
   MigrationChangeSetStatus,
   MigrationService,
   MigrationUtils,
@@ -403,7 +403,7 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
       if (err instanceof DendronError) {
         this.print(["status:", err.status, err.message].join(" "));
       } else {
-        this.print("unknown error " + error2PlainObject(err));
+        this.print("unknown error " + stringifyError(err));
       }
       return { error: err };
     }
@@ -450,7 +450,7 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
     await this.syncAssets(opts);
 
     this.print("prep repo...");
-    await BuildUtils.prepPluginPkg();
+    await BuildUtils.prepPluginPkg(opts.extensionTarget);
 
     if (!shouldPublishLocal) {
       this.print(
@@ -467,11 +467,6 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
 
     this.print("compiling plugin...");
     await BuildUtils.compilePlugin(opts);
-
-    if (opts.extensionTarget === ExtensionTarget.NIGHTLY) {
-      this.print("modifying plugin manifest for nightly target...");
-      await BuildUtils.prepPluginPkg(ExtensionTarget.NIGHTLY);
-    }
 
     this.print("package deps...");
     await BuildUtils.packagePluginDependencies(opts);

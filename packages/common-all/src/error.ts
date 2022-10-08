@@ -2,7 +2,7 @@ import { StatusCodes } from "http-status-codes";
 import _ from "lodash";
 import { AxiosError } from "axios";
 import { ERROR_SEVERITY, ERROR_STATUS } from "./constants";
-import { RespV3 } from "./types";
+import { RespV3, RespV3ErrorResp } from "./types";
 
 export type DendronErrorProps<TCode = StatusCodes | undefined> = {
   /**
@@ -182,7 +182,7 @@ export class DendronCompositeError extends Error implements IDendronError {
     // sometimes a composite error can be of size one. unwrap and show regular error message in this case
     if (this.errors.length === 1) {
       this.message = this.errors[0].message;
-    } else {
+    } else if (this.errors.length > 1) {
       const out = ["Multiple errors: "];
       const messages = this.errors.map((err) => ` - ${err.message}`);
       this.message = out.concat(messages).join("\n");
@@ -396,8 +396,15 @@ export class ErrorUtils {
   static isDendronError(error: unknown): error is DendronError {
     return _.get(error, "name", "") === "DendronError";
   }
-
-  static isErrorResp(resp: RespV3<any>) {
+  /**
+   * Given a RespV3, ensure it is an error resp.
+   *
+   * This helps typescript properly narrow down the type of the success resp's data as type T where it is called.
+   * Otherwise, because of how union types work, `data` will have the type T | undefined.
+   * @param args
+   * @returns
+   */
+  static isErrorResp(resp: RespV3<any>): resp is RespV3ErrorResp {
     return "error" in resp;
   }
 }

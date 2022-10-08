@@ -1,5 +1,5 @@
 import { NoteProps } from "@dendronhq/common-all";
-import { DendronASTDest, ProcFlavor } from "@dendronhq/engine-server";
+import { DendronASTDest, ProcFlavor } from "@dendronhq/unified";
 import fs from "fs-extra";
 import path from "path";
 import { ENGINE_HOOKS } from "../../../../presets";
@@ -26,7 +26,7 @@ describe("GIVEN mermaid", () => {
               expect(resp).toMatchSnapshot();
               await checkString(
                 resp.contents,
-                `<h1 id="mermaid-code-block"><a aria-hidden="true" class="anchor-heading icon-link" href="#mermaid-code-block"></a>mermaid code block</h1>`
+                `<h1 id="mermaid-code-block">mermaid code block<a aria-hidden="true" class="anchor-heading icon-link" href="#mermaid-code-block"></a></h1>`
               );
             },
             // [ProcFlavor.PREVIEW]: ProcFlavor.REGULAR,

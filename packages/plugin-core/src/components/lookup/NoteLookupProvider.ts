@@ -1,6 +1,7 @@
 import {
   ConfigUtils,
   DNodeUtils,
+  InvalidFilenameReason,
   LookupEvents,
   NoteLookupUtils,
   NoteProps,
@@ -97,6 +98,31 @@ export class NoteLookupProvider implements ILookupProviderV3 {
     return;
   }
 
+  shouldRejectItem(opts: { item: NoteQuickInput }):
+    | {
+        shouldReject: true;
+        reason: InvalidFilenameReason;
+      }
+    | {
+        shouldReject: false;
+        reason?: never;
+      } {
+    const { item } = opts;
+    const result = NoteUtils.validateFname(item.fname);
+    const shouldReject =
+      !result.isValid && PickerUtilsV2.isCreateNewNotePicked(item);
+    if (shouldReject) {
+      return {
+        shouldReject,
+        reason: result.reason,
+      };
+    } else {
+      return {
+        shouldReject,
+      };
+    }
+  }
+
   /**
    * Takes selection and runs accept, followed by hooks.
    * @param opts
@@ -119,6 +145,13 @@ export class NoteLookupProvider implements ILookupProviderV3 {
       });
 
       let selectedItems = NotePickerUtils.getSelection(picker);
+      const { preAcceptValidators } = this.opts;
+      if (preAcceptValidators) {
+        const isValid = preAcceptValidators.every((validator) => {
+          return validator(selectedItems);
+        });
+        if (!isValid) return;
+      }
       Logger.debug({
         ctx,
         selectedItems: selectedItems.map((item) => NoteUtils.toLogObj(item)),
@@ -130,6 +163,17 @@ export class NoteLookupProvider implements ILookupProviderV3 {
           picker,
         });
       }
+
+      // validates fname.
+      if (selectedItems.length === 1) {
+        const item = selectedItems[0];
+        const result = this.shouldRejectItem({ item });
+        if (result.shouldReject) {
+          window.showErrorMessage(result.reason);
+          return;
+        }
+      }
+
       // when doing lookup, opening existing notes don't require vault picker
       if (
         PickerUtilsV2.hasNextPicker(picker, {
@@ -247,7 +291,9 @@ export class NoteLookupProvider implements ILookupProviderV3 {
       // if empty string, show all 1st level results
       if (transformedQuery.queryString === "") {
         Logger.debug({ ctx, msg: "empty qs" });
-        const items = NotePickerUtils.fetchRootQuickPickResults({ engine });
+        const items = await NotePickerUtils.fetchRootQuickPickResults({
+          engine,
+        });
         const extraItems = this.opts.extraItems;
         if (extraItems) {
           items.unshift(...extraItems);
@@ -290,9 +336,9 @@ export class NoteLookupProvider implements ILookupProviderV3 {
         !_.isUndefined(queryUpToLastDot) &&
         !transformedQuery.wasMadeFromWikiLink
       ) {
-        const results = SchemaUtils.matchPath({
+        const results = await SchemaUtils.matchPath({
           notePath: queryUpToLastDot,
-          schemaModDict: engine.schemas,
+          engine,
         });
         // since namespace matches everything, we don't do queries on that
         if (results && !results.namespace) {
@@ -332,16 +378,19 @@ export class NoteLookupProvider implements ILookupProviderV3 {
             transformedQuery.originalQuery
           );
 
-          updatedItems = updatedItems.concat(
-            candidatesToAdd.map((ent) => {
+          const itemsToAdd = await Promise.all(
+            candidatesToAdd.map(async (ent) => {
               return DNodeUtils.enhancePropForQuickInputV3({
                 wsRoot,
                 props: ent,
-                schemas: engine.schemas,
+                schema: ent.schema
+                  ? (await engine.getSchema(ent.schema.moduleId)).data
+                  : undefined,
                 vaults,
               });
             })
           );
+          updatedItems = updatedItems.concat(itemsToAdd);
         }
       }
 
@@ -381,6 +430,21 @@ export class NoteLookupProvider implements ILookupProviderV3 {
           fname: queryOrig,
           detail: CREATE_NEW_NOTE_DETAIL,
         });
+        const newItems = [entryCreateNew];
+
+        // should not add `Create New with Template` if the quickpick
+        // 1. has an onCreate defined (i.e. task note), or
+        const onCreateDefined = picker.onCreate !== undefined;
+
+        const shouldAddCreateNewWithTemplate =
+          this.opts.allowNewNoteWithTemplate && !onCreateDefined;
+        if (shouldAddCreateNewWithTemplate) {
+          const entryCreateNewWithTemplate =
+            NotePickerUtils.createNewWithTemplateItem({
+              fname: queryOrig,
+            });
+          newItems.push(entryCreateNewWithTemplate);
+        }
 
         const bubbleUpCreateNew = ConfigUtils.getLookup(ws.config).note
           .bubbleUpCreateNew;
@@ -391,9 +455,9 @@ export class NoteLookupProvider implements ILookupProviderV3 {
             bubbleUpCreateNew,
           })
         ) {
-          updatedItems = [entryCreateNew, ...updatedItems];
+          updatedItems = newItems.concat(updatedItems);
         } else {
-          updatedItems = [...updatedItems, entryCreateNew];
+          updatedItems = updatedItems.concat(newItems);
         }
       }
 
@@ -423,6 +487,7 @@ export class NoteLookupProvider implements ILookupProviderV3 {
         msg: "exit",
         queryOrig,
         profile,
+        numItems: picker.items.length,
         cancelled: token?.isCancellationRequested,
       });
       AnalyticsUtils.track(VSCodeEvents.NoteLookup_Update, {

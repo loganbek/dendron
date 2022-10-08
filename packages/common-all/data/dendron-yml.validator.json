@@ -100,9 +100,14 @@
         "enableSelfContainedVaults": {
           "type": "boolean",
           "description": "Sets self contained vaults as the default vault type. Dendron can read self-contained vaults even if this option is not enabled, but it will only create self contained vaults if this option is enabled."
+        },
+        "enableExperimentalIFrameNoteRef": {
+          "type": "boolean",
+          "description": "Feature flag for iframe note references. True -> renders note references as an iframe when publishing to nextjs. False (Default) -> renders note references inline."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "Namespace for all dev configurations.\n\nThis is a namespace for all feature configs that are experimental. Keep this as flat as possible unless you know in advance what the config namespace will look like once it goes out of beta."
     },
     "DendronSiteConfig": {
       "type": "object",
@@ -647,8 +652,18 @@
             }
           },
           "additionalProperties": false
+        },
+        "aliasMode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "title"
+          ]
         }
       },
+      "required": [
+        "aliasMode"
+      ],
       "additionalProperties": false,
       "description": "Namespace for configuring  {@link  CopyNoteLinkCommand }"
     },
@@ -723,9 +738,6 @@
         "enableXVaultWikiLink": {
           "type": "boolean"
         },
-        "enableHandlebarTemplates": {
-          "type": "boolean"
-        },
         "enableRemoteVaultInit": {
           "type": "boolean"
         },
@@ -758,6 +770,13 @@
         },
         "apiEndpoint": {
           "type": "string"
+        },
+        "metadataStore": {
+          "type": "string",
+          "enum": [
+            "sqlite",
+            "json"
+          ]
         }
       },
       "required": [
@@ -768,7 +787,6 @@
         "graph",
         "enableAutoCreateOnDefinition",
         "enableXVaultWikiLink",
-        "enableHandlebarTemplates",
         "enableRemoteVaultInit",
         "workspaceVaultSyncMode",
         "enableAutoFoldFrontmatter",
@@ -1021,9 +1039,6 @@
         "enableHashesForFMTags": {
           "type": "boolean"
         },
-        "enableMermaid": {
-          "type": "boolean"
-        },
         "enablePrettyRefs": {
           "type": "boolean"
         },
@@ -1042,7 +1057,6 @@
         "enableNoteTitleForLink",
         "enableFrontmatterTags",
         "enableHashesForFMTags",
-        "enableMermaid",
         "enablePrettyRefs",
         "enableKatex",
         "automaticallyShowPreview"
@@ -1071,9 +1085,6 @@
           "type": "string"
         },
         "enableNoteTitleForLink": {
-          "type": "boolean"
-        },
-        "enableMermaid": {
           "type": "boolean"
         },
         "enablePrettyRefs": {
@@ -1171,6 +1182,23 @@
         },
         "siteBanner": {
           "type": "string"
+        },
+        "giscus": {
+          "$ref": "#/definitions/GiscusConfig"
+        },
+        "sidebarPath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean",
+              "const": false
+            }
+          ]
+        },
+        "searchMode": {
+          "$ref": "#/definitions/SearchMode"
         }
       },
       "required": [
@@ -1355,6 +1383,130 @@
       "enum": [
         "tree",
         "edit"
+      ]
+    },
+    "GiscusConfig": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "repoId": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "mapping": {
+          "type": "string",
+          "enum": [
+            "url",
+            "title",
+            "og:title",
+            "specific",
+            "number",
+            "pathname"
+          ]
+        },
+        "term": {
+          "type": "string"
+        },
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "light_high_contrast",
+            "light_protanopia",
+            "light_tritanopia",
+            "dark",
+            "dark_high_contrast",
+            "dark_protanopia",
+            "dark_tritanopia",
+            "dark_dimmed",
+            "transparent_dark",
+            "preferred_color_scheme"
+          ]
+        },
+        "strict": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "reactionsEnabled": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "emitMetadata": {
+          "type": "string",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "inputPosition": {
+          "type": "string",
+          "enum": [
+            "top",
+            "bottom"
+          ]
+        },
+        "lang": {
+          "type": "string",
+          "enum": [
+            "de",
+            "gsw",
+            "en",
+            "es",
+            "fr",
+            "id",
+            "it",
+            "ja",
+            "ko",
+            "nl",
+            "pl",
+            "pt",
+            "ro",
+            "ru",
+            "tr",
+            "vi",
+            "zh-CN",
+            "zh-TW"
+          ]
+        },
+        "loading": {
+          "type": "string",
+          "enum": [
+            "lazy",
+            "eager"
+          ]
+        }
+      },
+      "required": [
+        "repo",
+        "repoId",
+        "mapping"
+      ],
+      "additionalProperties": false
+    },
+    "SearchMode": {
+      "type": "string",
+      "enum": [
+        "search",
+        "lookup"
       ]
     }
   }

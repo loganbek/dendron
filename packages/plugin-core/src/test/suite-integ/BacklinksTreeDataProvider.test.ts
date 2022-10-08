@@ -1,9 +1,10 @@
 import {
   DVault,
   NoteChangeEntry,
-  NoteProps,
   NoteUtils,
   VaultUtils,
+  BacklinkPanelSortOrder,
+  NotePropsMeta,
 } from "@dendronhq/common-all";
 import {
   NOTE_PRESETS_V4,
@@ -26,7 +27,7 @@ import { VSCodeUtils } from "../../vsCodeUtils";
 import { expect } from "../testUtilsv2";
 import { describeMultiWS, describeSingleWS } from "../testUtilsV3";
 import { MockEngineEvents } from "./MockEngineEvents";
-import { BacklinkPanelSortOrder } from "@dendronhq/engine-server";
+import { DConfig } from "@dendronhq/common-server";
 
 type BacklinkWithChildren = Backlink & { children?: Backlink[] | undefined };
 
@@ -152,7 +153,8 @@ suite("BacklinksTreeDataProvider", function () {
     () => {
       test("THEN BacklinksTreeDataProvider calculates correct number of backlinks", async () => {
         const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-        await ExtensionProvider.getWSUtils().openNote(engine.notes["alpha"]);
+        const note = (await engine.getNote("alpha")).data!;
+        await ExtensionProvider.getWSUtils().openNote(note);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
           path.join(wsRoot, VaultUtils.getRelPath(vaults[0]), "beta.md")
@@ -188,7 +190,8 @@ suite("BacklinksTreeDataProvider", function () {
         // re-initialize engine from cache
         await new ReloadIndexCommand().run();
         const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-        await ExtensionProvider.getWSUtils().openNote(engine.notes["alpha"]);
+        const note = (await engine.getNote("alpha")).data!;
+        await ExtensionProvider.getWSUtils().openNote(note);
 
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
@@ -231,11 +234,9 @@ suite("BacklinksTreeDataProvider", function () {
           ?.enableLinkCandidates;
         expect(isLinkCandidateEnabled).toBeTruthy();
 
-        const noteWithTarget = NoteUtils.getNoteByFnameFromEngine({
-          fname: "alpha",
-          engine,
-          vault: vaults[0],
-        });
+        const noteWithTarget = (
+          await engine.findNotesMeta({ fname: "alpha", vault: vaults[0] })
+        )[0];
         await checkNoteBacklinks({ wsRoot, vaults, noteWithTarget });
       });
     }
@@ -279,20 +280,16 @@ suite("BacklinksTreeDataProvider", function () {
         await checkNoteBacklinks({
           wsRoot,
           vaults,
-          noteWithTarget: NoteUtils.getNoteByFnameFromEngine({
-            fname: "alpha",
-            engine,
-            vault: vaults[0],
-          }),
+          noteWithTarget: (
+            await engine.findNotesMeta({ fname: "alpha", vault: vaults[0] })
+          )[0],
         });
         await checkNoteBacklinks({
           wsRoot,
           vaults,
-          noteWithTarget: NoteUtils.getNoteByFnameFromEngine({
-            fname: "alpha",
-            engine,
-            vault: vaults[1],
-          }),
+          noteWithTarget: (
+            await engine.findNotesMeta({ fname: "alpha", vault: vaults[1] })
+          )[0],
         });
       });
     }
@@ -373,7 +370,8 @@ suite("BacklinksTreeDataProvider", function () {
 
       test("THEN BacklinksTreeDataProvider calculates correct number of backlinks", async () => {
         const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-        await ExtensionProvider.getWSUtils().openNote(engine.notes["alpha"]);
+        const note = (await engine.getNote("alpha")).data!;
+        await ExtensionProvider.getWSUtils().openNote(note);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
           path.join(wsRoot, vaults[1].fsPath, "beta.md")
@@ -412,13 +410,13 @@ suite("BacklinksTreeDataProvider", function () {
       test("THEN link candidates should only work within a vault", async () => {
         const engine = ExtensionProvider.getEngine();
 
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
         const alphaOut = (await getRootChildrenBacklinksAsPlainObject()).out;
         expect(alphaOut).toEqual([]);
         expect(alpha.links).toEqual([]);
 
-        const gamma = engine.notes["gamma"];
+        const gamma = (await engine.getNote("gamma")).data!;
         await ExtensionProvider.getWSUtils().openNote(gamma);
         const gammaOut = (await getRootChildrenBacklinksAsPlainObject()).out;
         expect(gammaOut).toEqual([]);
@@ -450,14 +448,14 @@ suite("BacklinksTreeDataProvider", function () {
         const engine = ExtensionProvider.getEngine();
 
         await new ReloadIndexCommand().execute();
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
 
         const { out: alphaOut } = await getRootChildrenBacklinks();
         const alphaOutObj = backlinksToPlainObject(alphaOut) as any;
         expect(_.isEmpty(alphaOutObj)).toBeTruthy();
 
-        const beta = engine.notes["beta"];
+        const beta = (await engine.getNote("beta")).data!;
         await ExtensionProvider.getWSUtils().openNote(beta);
         const { out: betaOut } = await getRootChildrenBacklinks();
         const betaOutObj = backlinksToPlainObject(betaOut) as any;
@@ -496,7 +494,7 @@ suite("BacklinksTreeDataProvider", function () {
 
         // need this until we move it out of the feature flag.
         await new ReloadIndexCommand().execute();
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
 
         const { out } = await getRootChildrenBacklinks();
@@ -540,7 +538,7 @@ suite("BacklinksTreeDataProvider", function () {
       test("THEN BacklinksTreeDataProvider calculates correct number of backlinks", async () => {
         const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
 
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
@@ -571,12 +569,12 @@ suite("BacklinksTreeDataProvider", function () {
     () => {
       test("THEN BacklinksTreeDataProvider calculates correct number of links", async () => {
         const { engine, wsRoot } = ExtensionProvider.getDWorkspace();
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
           NoteUtils.getFullPath({
-            note: engine.notes["beta"],
+            note: (await engine.getNote("beta")).data!,
             wsRoot,
           })
         ).path;
@@ -606,7 +604,7 @@ suite("BacklinksTreeDataProvider", function () {
     () => {
       test("THEN BacklinksTreeDataProvider calculates correct number of links", async () => {
         const { engine, wsRoot } = ExtensionProvider.getDWorkspace();
-        const alpha = engine.notes["alpha"];
+        const alpha = (await engine.getNote("alpha")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         // assert.strictEqual(
@@ -615,7 +613,7 @@ suite("BacklinksTreeDataProvider", function () {
         // );
         const expectedPath = vscode.Uri.file(
           NoteUtils.getFullPath({
-            note: engine.notes["beta"],
+            note: (await engine.getNote("beta")).data!,
             wsRoot,
           })
         ).path;
@@ -647,12 +645,12 @@ suite("BacklinksTreeDataProvider", function () {
     () => {
       test("THEN BacklinksTreeDataProvider calculates correct number of links", async () => {
         const { engine, wsRoot } = ExtensionProvider.getDWorkspace();
-        const alpha = engine.notes["tags.my.test-0.tag"];
+        const alpha = (await engine.getNote("tags.my.test-0.tag")).data!;
         await ExtensionProvider.getWSUtils().openNote(alpha);
         const { out } = await getRootChildrenBacklinksAsPlainObject();
         const expectedPath = vscode.Uri.file(
           NoteUtils.getFullPath({
-            note: engine.notes["test"],
+            note: (await engine.getNote("test")).data!,
             wsRoot,
           })
         ).path;
@@ -678,7 +676,9 @@ suite("BacklinksTreeDataProvider", function () {
         mockEvents = new MockEngineEvents();
         backlinksTreeDataProvider = new BacklinksTreeDataProvider(
           mockEvents,
-          ExtensionProvider.getEngine().config.dev?.enableLinkCandidates
+          DConfig.readConfigSync(
+            ExtensionProvider.getDWorkspace().wsRoot
+          ).dev?.enableLinkCandidates
         );
 
         updateSortOrder = sinon
@@ -691,8 +691,11 @@ suite("BacklinksTreeDataProvider", function () {
       });
 
       test("AND a note gets created, THEN the data provider refresh event gets invoked", (done) => {
-        const engine = ExtensionProvider.getEngine();
-        const testNoteProps = engine.notes["foo"];
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        const testNoteProps = NoteUtils.create({
+          fname: "foo",
+          vault: vaults[0],
+        });
         const entry: NoteChangeEntry = {
           note: testNoteProps,
           status: "create",
@@ -706,8 +709,11 @@ suite("BacklinksTreeDataProvider", function () {
       });
 
       test("AND a note gets updated, THEN the data provider refresh event gets invoked", (done) => {
-        const engine = ExtensionProvider.getEngine();
-        const testNoteProps = engine.notes["foo"];
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        const testNoteProps = NoteUtils.create({
+          fname: "foo",
+          vault: vaults[0],
+        });
         const entry: NoteChangeEntry = {
           prevNote: testNoteProps,
           note: testNoteProps,
@@ -722,8 +728,11 @@ suite("BacklinksTreeDataProvider", function () {
       });
 
       test("AND a note gets deleted, THEN the data provider refresh event gets invoked", (done) => {
-        const engine = ExtensionProvider.getEngine();
-        const testNoteProps = engine.notes["foo"];
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        const testNoteProps = NoteUtils.create({
+          fname: "foo",
+          vault: vaults[0],
+        });
         const entry: NoteChangeEntry = {
           note: testNoteProps,
           status: "delete",
@@ -746,7 +755,7 @@ async function checkNoteBacklinks({
 }: {
   wsRoot: string;
   vaults: DVault[];
-  noteWithTarget?: NoteProps;
+  noteWithTarget?: NotePropsMeta;
 }): Promise<boolean> {
   expect(noteWithTarget).toBeTruthy();
   await ExtensionProvider.getWSUtils().openNote(noteWithTarget!);

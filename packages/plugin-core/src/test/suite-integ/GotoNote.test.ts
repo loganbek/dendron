@@ -18,7 +18,6 @@ import { PickerUtilsV2 } from "../../components/lookup/utils";
 import { ExtensionProvider } from "../../ExtensionProvider";
 import { PluginFileUtils } from "../../utils/files";
 import { VSCodeUtils } from "../../vsCodeUtils";
-import { getDWorkspace, getExtension } from "../../workspace";
 import { WSUtils } from "../../WSUtils";
 import { GOTO_NOTE_PRESETS } from "../presets/GotoNotePreset";
 import { getActiveEditorBasename } from "../testUtils";
@@ -32,7 +31,7 @@ import {
 const { ANCHOR_WITH_SPECIAL_CHARS, ANCHOR } = GOTO_NOTE_PRESETS;
 
 function createGoToNoteCmd() {
-  return new GotoNoteCommand(getExtension());
+  return new GotoNoteCommand(ExtensionProvider.getExtension());
 }
 
 suite("GotoNote", function () {
@@ -48,7 +47,7 @@ suite("GotoNote", function () {
         test("THEN goto note", async () => {
           const { vaults, engine } = ExtensionProvider.getDWorkspace();
           const vault = vaults[0];
-          const note = engine.notes["foo"];
+          const note = (await engine.getNoteMeta("foo")).data!;
           const { note: out } = (await createGoToNoteCmd().run({
             qs: "foo",
             vault,
@@ -73,7 +72,7 @@ suite("GotoNote", function () {
         test("THEN get note", async () => {
           const { vaults, engine } = ExtensionProvider.getDWorkspace();
           const vault = vaults[0];
-          const note = (await engine.findNotes({ fname: "foo", vault }))[0];
+          const note = (await engine.findNotesMeta({ fname: "foo", vault }))[0];
           expect(_.pick(note, ["fname", "stub"])).toEqual({
             fname: "foo",
             stub: true,
@@ -109,6 +108,31 @@ suite("GotoNote", function () {
             fname: "foo.ch2",
           });
           expect(getActiveEditorBasename()).toEqual("foo.ch2.md");
+        });
+      }
+    );
+
+    describeMultiWS(
+      "WHEN goto new note with invalid filename",
+      {
+        preSetupHook,
+      },
+      () => {
+        test("THEN note is not created, and error toast is displayed", async () => {
+          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vault = vaults[0];
+          const cmd = createGoToNoteCmd();
+          const errorSpy = sinon.spy(
+            cmd,
+            "displayInvalidFilenameError" as keyof GotoNoteCommand
+          );
+          const out = await cmd.run({
+            qs: "foo..bar",
+            vault,
+          });
+          expect(out).toEqual(undefined);
+          expect(errorSpy.called).toBeTruthy();
+          errorSpy.restore();
         });
       }
     );
@@ -561,7 +585,9 @@ suite("GotoNote", function () {
           await ENGINE_HOOKS_MULTI.setupLinksMulti(opts);
         },
         onInit: async ({ engine, vaults }) => {
-          const note = engine.notes[NOTE_PRESETS_V4.NOTE_WITH_TARGET.fname];
+          const note = (
+            await engine.getNoteMeta(NOTE_PRESETS_V4.NOTE_WITH_TARGET.fname)
+          ).data!;
           const editor = await WSUtils.openNote(note);
           const linkPos = LocationTestUtils.getPresetWikiLinkPosition();
           editor.selection = new vscode.Selection(linkPos, linkPos);
@@ -597,7 +623,7 @@ suite("GotoNote", function () {
                 line: 7,
               });
               await createGoToNoteCmd().run();
-              const openedNote = WSUtils.getNoteFromDocument(
+              const openedNote = await WSUtils.getNoteFromDocument(
                 VSCodeUtils.getActiveTextEditorOrThrow().document
               );
               expect(openedNote?.fname).toEqual("eggs");
@@ -626,7 +652,7 @@ suite("GotoNote", function () {
               line: 8,
             });
             await createGoToNoteCmd().run();
-            const openedNote = WSUtils.getNoteFromDocument(
+            const openedNote = await WSUtils.getNoteFromDocument(
               VSCodeUtils.getActiveTextEditorOrThrow().document
             );
             expect(openedNote?.fname).toEqual("eggs");
@@ -651,7 +677,7 @@ suite("GotoNote", function () {
               line: 9,
             });
             await createGoToNoteCmd().run();
-            const openedNote = WSUtils.getNoteFromDocument(
+            const openedNote = await WSUtils.getNoteFromDocument(
               VSCodeUtils.getActiveTextEditorOrThrow().document
             );
             expect(openedNote?.fname).toEqual("eggs");
@@ -676,7 +702,7 @@ suite("GotoNote", function () {
               line: 10,
             });
             await createGoToNoteCmd().run();
-            const openedNote = WSUtils.getNoteFromDocument(
+            const openedNote = await WSUtils.getNoteFromDocument(
               VSCodeUtils.getActiveTextEditorOrThrow().document
             );
             // Should have created the note in this vault
@@ -702,7 +728,7 @@ suite("GotoNote", function () {
               line: 11,
             });
             await createGoToNoteCmd().run();
-            const openedNote = WSUtils.getNoteFromDocument(
+            const openedNote = await WSUtils.getNoteFromDocument(
               VSCodeUtils.getActiveTextEditorOrThrow().document
             );
             // Should not have changed notes
@@ -731,7 +757,9 @@ suite("GotoNote", function () {
           sinon
             .stub(PickerUtilsV2, "promptVault")
             .returns(Promise.resolve(vaults[1]));
-          const note = engine.notes[NOTE_PRESETS_V4.NOTE_WITH_TARGET.fname];
+          const note = (
+            await engine.getNoteMeta(NOTE_PRESETS_V4.NOTE_WITH_TARGET.fname)
+          ).data!;
           const editor = await WSUtils.openNote(note);
           const linkPos = LocationTestUtils.getPresetWikiLinkPosition();
           editor.selection = new vscode.Selection(linkPos, linkPos);
@@ -765,7 +793,7 @@ suite("GotoNote", function () {
           );
         },
         onInit: async ({ engine, vaults }) => {
-          const note = engine.notes["foo"];
+          const note = (await engine.getNoteMeta("foo")).data!;
           const editor = await WSUtils.openNote(note);
           // put cursor in location on 48
           editor.selection = new vscode.Selection(
@@ -785,7 +813,7 @@ suite("GotoNote", function () {
     describe("GIVEN non-note files", () => {
       describeMultiWS("WHEN used on a link to a non-note file", { ctx }, () => {
         before(async () => {
-          const { wsRoot, vaults } = getDWorkspace();
+          const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
           await fs.writeFile(
             path.join(wsRoot, "test.txt"),
             "Et voluptatem autem sunt."
@@ -805,7 +833,7 @@ suite("GotoNote", function () {
         });
 
         test("THEN opens the non-note file", async () => {
-          const { vaults, wsRoot, engine } = getDWorkspace();
+          const { vaults, wsRoot, engine } = ExtensionProvider.getDWorkspace();
           const note = await NoteTestUtilsV4.createNoteWithEngine({
             wsRoot,
             vault: vaults[0],
@@ -827,7 +855,8 @@ suite("GotoNote", function () {
 
         describe("AND the link doesn't include a slash", () => {
           before(async () => {
-            const { vaults, wsRoot, engine } = getDWorkspace();
+            const { vaults, wsRoot, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],
@@ -852,7 +881,8 @@ suite("GotoNote", function () {
 
         describe("AND the link starts with assets", () => {
           before(async () => {
-            const { vaults, wsRoot, engine } = getDWorkspace();
+            const { vaults, wsRoot, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],
@@ -881,7 +911,8 @@ suite("GotoNote", function () {
         { ctx },
         () => {
           before(async () => {
-            const { wsRoot, vaults, engine } = getDWorkspace();
+            const { wsRoot, vaults, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],
@@ -925,7 +956,8 @@ suite("GotoNote", function () {
         { ctx },
         () => {
           before(async () => {
-            const { wsRoot, vaults, engine } = getDWorkspace();
+            const { wsRoot, vaults, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],
@@ -970,7 +1002,8 @@ suite("GotoNote", function () {
         { ctx },
         () => {
           before(async () => {
-            const { wsRoot, vaults, engine } = getDWorkspace();
+            const { wsRoot, vaults, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],
@@ -1043,7 +1076,8 @@ suite("GotoNote", function () {
         { ctx },
         () => {
           before(async () => {
-            const { wsRoot, vaults, engine } = getDWorkspace();
+            const { wsRoot, vaults, engine } =
+              ExtensionProvider.getDWorkspace();
             const note = await NoteTestUtilsV4.createNoteWithEngine({
               wsRoot,
               vault: vaults[0],

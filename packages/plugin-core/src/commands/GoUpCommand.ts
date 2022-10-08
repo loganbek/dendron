@@ -1,11 +1,11 @@
-import { DNodeUtils, NoteProps, NoteUtils } from "@dendronhq/common-all";
+import { DNodeUtils, NoteUtils } from "@dendronhq/common-all";
 import _ from "lodash";
 import path from "path";
 import { Uri, window } from "vscode";
 import { PickerUtilsV2 } from "../components/lookup/utils";
 import { DENDRON_COMMANDS } from "../constants";
+import { IDendronExtension } from "../dendronExtensionInterface";
 import { VSCodeUtils } from "../vsCodeUtils";
-import { getDWorkspace } from "../workspace";
 import { BasicCommand } from "./base";
 
 type CommandOpts = {};
@@ -13,6 +13,10 @@ type CommandOpts = {};
 type CommandOutput = void;
 
 export class GoUpCommand extends BasicCommand<CommandOpts, CommandOutput> {
+  constructor(private _ext: IDendronExtension) {
+    super();
+  }
+
   key = DENDRON_COMMANDS.GO_UP_HIERARCHY.key;
   async gatherInputs(): Promise<any> {
     return {};
@@ -23,19 +27,18 @@ export class GoUpCommand extends BasicCommand<CommandOpts, CommandOutput> {
       window.showErrorMessage("no active document found");
       return;
     }
-    const engine = getDWorkspace().engine;
-    const nparent = DNodeUtils.findClosestParent(
+    const engine = this._ext.getEngine();
+    const nparent = await DNodeUtils.findClosestParentWithEngine(
       path.basename(maybeTextEditor.document.uri.fsPath, ".md"),
-      { notesById: engine.notes, notesByFname: engine.noteFnames },
+      engine,
       {
-        noStubs: true,
+        excludeStub: true,
         vault: PickerUtilsV2.getVaultForOpenEditor(),
-        wsRoot: getDWorkspace().wsRoot,
       }
-    ) as NoteProps;
+    );
     const nppath = NoteUtils.getFullPath({
       note: nparent,
-      wsRoot: getDWorkspace().wsRoot,
+      wsRoot: this._ext.getDWorkspace().wsRoot,
     });
     await VSCodeUtils.openFileInEditor(Uri.file(nppath));
     return;

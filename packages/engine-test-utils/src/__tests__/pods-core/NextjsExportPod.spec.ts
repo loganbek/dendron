@@ -52,6 +52,7 @@ async function verifyExport(dest: string) {
     "dendron.json",
     "meta",
     "notes",
+    "refs",
     "notes.json",
     "tree.json"
   );
@@ -128,6 +129,92 @@ describe("GIVEN NextExport pod", () => {
                   copyAssets: true,
                 },
               });
+            },
+          }
+        );
+      });
+      test("THEN refs are copied", async () => {
+        await runEngineTestV5(
+          async ({ engine, vaults, wsRoot }) => {
+            const dest = await setupExport({ engine, wsRoot, vaults });
+            await verifyExport(dest);
+            await verifyExportedAssets(dest);
+            await checkDir(
+              { fpath: path.join(dest, "data", "refs") },
+              "simple-note-refone---0.html"
+            );
+          },
+          {
+            expect,
+            preSetupHook: async (opts) => {
+              const wsRoot = opts.wsRoot;
+              await ENGINE_HOOKS.setupRefs(opts);
+              await createAssetsInVault({
+                wsRoot: opts.wsRoot,
+                vault: opts.vaults[0],
+              });
+              setupConfig({
+                ...opts,
+              });
+              TestConfigUtils.withConfig(
+                (config) => {
+                  config.dev = {
+                    ...config.dev,
+                    enableExperimentalIFrameNoteRef: true,
+                  };
+                  return config;
+                },
+                { wsRoot }
+              );
+            },
+          }
+        );
+      });
+      test("THEN recursive refs are copied", async () => {
+        await runEngineTestV5(
+          async ({ engine, vaults, wsRoot }) => {
+            const dest = await setupExport({ engine, wsRoot, vaults });
+            await verifyExport(dest);
+            await verifyExportedAssets(dest);
+            await checkDir(
+              { fpath: path.join(dest, "data", "refs") },
+              "fooone-id---0.html",
+              "footwo---0.html"
+            );
+            await checkDir(
+              { fpath: path.join(dest, "data", "notes") },
+              "foo.html",
+              "foo.one-id.html",
+              "foo.two.html"
+            );
+          },
+          {
+            expect,
+            preSetupHook: async (opts) => {
+              const wsRoot = opts.wsRoot;
+              await ENGINE_HOOKS.setupNoteRefRecursive(opts);
+              await createAssetsInVault({
+                wsRoot: opts.wsRoot,
+                vault: opts.vaults[0],
+              });
+
+              setupConfig({
+                ...opts,
+                siteConfig: {
+                  copyAssets: true,
+                },
+              });
+
+              TestConfigUtils.withConfig(
+                (config) => {
+                  config.dev = {
+                    ...config.dev,
+                    enableExperimentalIFrameNoteRef: true,
+                  };
+                  return config;
+                },
+                { wsRoot }
+              );
             },
           }
         );
@@ -351,7 +438,7 @@ describe("GIVEN NextExport pod", () => {
             );
             await TestUnifiedUtils.verifyPrivateLink({
               contents,
-              value: "bar",
+              value: "Bar",
             });
             await verifyExport(dest);
           },
@@ -389,8 +476,8 @@ describe("GIVEN NextExport pod", () => {
   });
 });
 
-describe("nextjs export", () => {
-  test("ok", async () => {
+describe("GIVEN nextjs export", () => {
+  test("THEN ok", async () => {
     await runEngineTestV5(
       async ({ engine, vaults, wsRoot }) => {
         const dest = await setupExport({ engine, wsRoot, vaults });
@@ -400,13 +487,11 @@ describe("nextjs export", () => {
           `"siteUrl": "https://foo.com"`,
           `"enablePrettyLinks": true`
         );
-
         await checkFile(
           { fpath: path.join(dest, "data", "tree.json") },
           `"roots": [`,
           `"child2parent": {`
         );
-
         // check pretty url
         await checkFile(
           {
@@ -432,146 +517,619 @@ describe("nextjs export", () => {
     );
   });
 
-  test("ok, override siteUrl", async () => {
-    await runEngineTestV5(
-      async ({ engine, vaults, wsRoot }) => {
-        const dest = await setupExport({
-          engine,
-          wsRoot,
-          vaults,
-          podConfig: { overrides: { siteUrl: "https://bar.com" } },
-        });
-        verifyExport(dest);
+  describe("WHEN override siteUrl", () => {
+    test("THEN ok", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+            podConfig: { overrides: { siteUrl: "https://bar.com" } },
+          });
+          verifyExport(dest);
 
-        await checkFile(
-          { fpath: path.join(dest, "data", "dendron.json") },
-          `"siteUrl": "https://bar.com"`
-        );
-      },
-      {
-        expect,
-        preSetupHook: async (opts) => {
-          await ENGINE_HOOKS.setupBasic(opts);
-          TestConfigUtils.withConfig(
-            (config) => {
-              ConfigUtils.setPublishProp(config, "siteUrl", "https://foo.com");
-              return config;
-            },
-            { wsRoot: opts.wsRoot }
+          await checkFile(
+            { fpath: path.join(dest, "data", "dendron.json") },
+            `"siteUrl": "https://bar.com"`
           );
         },
-      }
-    );
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            await ENGINE_HOOKS.setupBasic(opts);
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                return config;
+              },
+              { wsRoot: opts.wsRoot }
+            );
+          },
+        }
+      );
+    });
   });
 
-  test("ok, with assetPrefix", async () => {
-    await runEngineTestV5(
-      async ({ engine, vaults, wsRoot }) => {
-        const dest = await setupExport({ engine, wsRoot, vaults });
-        await verifyExport(dest);
-        await checkFile(
-          { fpath: path.join(dest, ".env.production") },
-          "NEXT_PUBLIC_ASSET_PREFIX=/customPrefix"
-        );
-        await checkFile(
+  describe("WHEN assetPrefix is set", () => {
+    test("THEN ok", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({ engine, wsRoot, vaults });
+          await verifyExport(dest);
+          await checkFile(
+            { fpath: path.join(dest, ".env.production") },
+            "NEXT_PUBLIC_ASSET_PREFIX=/customPrefix"
+          );
+          await checkFile(
+            {
+              fpath: path.join(dest, "data", "notes", "foo.html"),
+            },
+            `href="/customPrefix/notes/foo.ch1"`
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            await ENGINE_HOOKS.setupBasic(opts);
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                ConfigUtils.setPublishProp(
+                  config,
+                  "assetsPrefix",
+                  "/customPrefix"
+                );
+                return config;
+              },
+              { wsRoot: opts.wsRoot }
+            );
+          },
+        }
+      );
+    });
+  });
+
+  describe("WHEN override canonical", () => {
+    test("THEN ok", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+            podConfig: {
+              overrides: {
+                canonicalBaseUrl: "https://foobar.com",
+              },
+            },
+          });
+          await verifyExport(dest);
+          await checkFile(
+            { fpath: path.join(dest, "data", "dendron.json") },
+            `"canonicalBaseUrl": "https://foobar.com"`
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            await ENGINE_HOOKS.setupBasic(opts);
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                return config;
+              },
+              { wsRoot: opts.wsRoot }
+            );
+          },
+        }
+      );
+    });
+  });
+
+  describe("WHEN github Cname", () => {
+    test("THEN ok", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = tmpDir().name;
+          const pod = new NextjsExportPod();
+          await pod.execute({
+            engine,
+            vaults,
+            wsRoot,
+            config: {
+              dest,
+              overrides: {
+                siteUrl: "https://bar.com",
+              },
+            },
+          });
+          await checkDir({ fpath: dest }, "data", "public");
+          await checkDir({ fpath: path.join(dest, "public") }, "CNAME");
+          await checkFile(
+            { fpath: path.join(dest, "public", "CNAME") },
+            `11ty.dendron.so`
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            await ENGINE_HOOKS.setupBasic(opts);
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setGithubProp(config, "cname", "11ty.dendron.so");
+                return config;
+              },
+              { wsRoot: opts.wsRoot }
+            );
+          },
+        }
+      );
+    });
+  });
+
+  describe("WHEN sidebarPath", () => {
+    describe("AND is set to false", () => {
+      test("THEN ok", async () => {
+        await runEngineTestV5(
+          async ({ engine, vaults, wsRoot }) => {
+            const dest = await setupExport({ engine, wsRoot, vaults });
+            await verifyExport(dest);
+          },
           {
-            fpath: path.join(dest, "data", "notes", "foo.html"),
-          },
-          `href="/customPrefix/notes/foo.ch1"`
-        );
-      },
-      {
-        expect,
-        preSetupHook: async (opts) => {
-          await ENGINE_HOOKS.setupBasic(opts);
-          TestConfigUtils.withConfig(
-            (config) => {
-              ConfigUtils.setPublishProp(config, "siteUrl", "https://foo.com");
-              ConfigUtils.setPublishProp(
-                config,
-                "assetsPrefix",
-                "/customPrefix"
-              );
-              return config;
+            expect,
+            preSetupHook: async (opts) => {
+              await ENGINE_HOOKS.setupBasic(opts);
+              setupConfig({
+                ...opts,
+                siteConfig: {
+                  sidebarPath: false,
+                },
+              });
             },
-            { wsRoot: opts.wsRoot }
-          );
-        },
-      }
-    );
+          }
+        );
+      });
+    });
+    describe("AND points to non-existend file", () => {
+      test("THEN throw", async () => {
+        await runEngineTestV5(
+          async ({ engine, vaults, wsRoot }) => {
+            await expect(async () => {
+              await setupExport({ engine, wsRoot, vaults });
+            }).rejects.toThrow();
+          },
+          {
+            expect,
+            preSetupHook: async (opts) => {
+              await ENGINE_HOOKS.setupBasic(opts);
+              setupConfig({
+                ...opts,
+                siteConfig: {
+                  sidebarPath: "./non-existend-file.js",
+                },
+              });
+            },
+          }
+        );
+      });
+    });
   });
 
-  test("ok, override canonical", async () => {
-    await runEngineTestV5(
-      async ({ engine, vaults, wsRoot }) => {
-        const dest = await setupExport({
-          engine,
-          wsRoot,
-          vaults,
-          podConfig: {
-            overrides: {
-              canonicalBaseUrl: "https://foobar.com",
-            },
-          },
-        });
-        await verifyExport(dest);
-        await checkFile(
-          { fpath: path.join(dest, "data", "dendron.json") },
-          `"canonicalBaseUrl": "https://foobar.com"`
-        );
-      },
-      {
-        expect,
-        preSetupHook: async (opts) => {
-          await ENGINE_HOOKS.setupBasic(opts);
-          TestConfigUtils.withConfig(
-            (config) => {
-              ConfigUtils.setPublishProp(config, "siteUrl", "https://foo.com");
-              return config;
-            },
-            { wsRoot: opts.wsRoot }
-          );
-        },
-      }
-    );
-  });
+  describe("WHEN config.dev.enableExperimentalIFrameNoteRef is true", () => {
+    test("WHEN note ref is the root of a hierarchy, link should be / not /notes/", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
 
-  test("ok, create githubCname", async () => {
-    await runEngineTestV5(
-      async ({ engine, vaults, wsRoot }) => {
-        const dest = tmpDir().name;
-        const pod = new NextjsExportPod();
-        await pod.execute({
-          engine,
-          vaults,
-          wsRoot,
-          config: {
-            dest,
-            overrides: {
-              siteUrl: "https://bar.com",
+          await checkFile(
+            {
+              fpath: path.join(dest, "data", "refs", "public---0.html"),
+              snapshot: true,
+              nomatch: ["/notes/"],
             },
-          },
-        });
-        await checkDir({ fpath: dest }, "data", "public");
-        await checkDir({ fpath: path.join(dest, "public") }, "CNAME");
-        await checkFile(
-          { fpath: path.join(dest, "public", "CNAME") },
-          `11ty.dendron.so`
-        );
-      },
-      {
-        expect,
-        preSetupHook: async (opts) => {
-          await ENGINE_HOOKS.setupBasic(opts);
-          TestConfigUtils.withConfig(
-            (config) => {
-              ConfigUtils.setGithubProp(config, "cname", "11ty.dendron.so");
-              return config;
+            `href="/"`
+          );
+
+          await checkFile(
+            {
+              fpath: path.join(
+                dest,
+                "data",
+                "refs",
+                "publicsubnote-2---0.html"
+              ),
+              snapshot: true,
             },
-            { wsRoot: opts.wsRoot }
+            "notes/subnote-2"
           );
         },
-      }
-    );
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+            await NoteTestUtilsV4.createNote({
+              fname: "public",
+              vault,
+              wsRoot,
+              body: ["I'm the homepage, my url as a ref should be /"].join(
+                "\n"
+              ),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public.subnote-2",
+              vault,
+              wsRoot,
+              body: ["I should be /notes/subnote-2"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public.subnote",
+              vault,
+              wsRoot,
+              body: [
+                "Reference to the root of the siteHierarchy:",
+                "![[public]]",
+                "![[public.subnote-2]]",
+              ].join("\n"),
+            });
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "siteHierarchies", [
+                  "public",
+                ]);
+                ConfigUtils.setPublishProp(config, "siteUrl", "example.com");
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
+
+    test("WHEN a noteref has a header, it should not have a .anchor-heading a tag", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
+
+          await checkFile({
+            fpath: path.join(dest, "data", "refs", "public---0.html"),
+            snapshot: true,
+            nomatch: ["anchor-heading"],
+          });
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+            await NoteTestUtilsV4.createNote({
+              fname: "public",
+              vault,
+              wsRoot,
+              body: ["# My header tag", "should not have an anchor tag"].join(
+                "\n"
+              ),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public.subnote",
+              vault,
+              wsRoot,
+              body: [
+                "I reference public so that refs/public---0.html renders",
+                "![[public]]",
+              ].join("\n"),
+            });
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "siteUrl", "example.com");
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
+
+    test("WHEN note ref of a note that references itself", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
+
+          await checkFile(
+            {
+              fpath: path.join(dest, "data", "refs", "public---0.html"),
+              snapshot: true,
+            },
+            "too many nested note refs",
+            "public content"
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+            await NoteTestUtilsV4.createNote({
+              fname: "public",
+              vault,
+              wsRoot,
+              body: ["public content", "![[public]]"].join("\n"),
+            });
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "siteHierarchies", [
+                  "public",
+                ]);
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
+
+    test.skip("WHEN a noteRef has a chain of references, it should only render 3 levels deep", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
+
+          await checkFile(
+            {
+              fpath: path.join(dest, "data", "refs", "levelOne---0.html"),
+              snapshot: true,
+              nomatch: ["four"],
+            },
+            "three",
+            "too many nested note refs"
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+            await NoteTestUtilsV4.createNote({
+              fname: "root",
+              vault,
+              wsRoot,
+              body: ["Root level", "![[levelOne]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "levelOne",
+              vault,
+              wsRoot,
+              body: ["Level one", "![[levelTwo]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "levelTwo",
+              vault,
+              wsRoot,
+              body: ["Level two", "![[levelThree]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "levelThree",
+              vault,
+              wsRoot,
+              body: ["Level three", "![[levelFour]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "levelFour",
+              vault,
+              wsRoot,
+              body: ["Level four", "![[levelFive]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "levelFive",
+              vault,
+              wsRoot,
+              body: ["Level five"].join("\n"),
+            });
+            TestConfigUtils.withConfig(
+              (config) => {
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                ConfigUtils.setPublishProp(config, "siteUrl", "example.com");
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
+
+    test("WHEN note ref of a private note ", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
+
+          await checkFile({
+            fpath: path.join(dest, "data", "refs.json"),
+            snapshot: true,
+          });
+
+          await checkFile({
+            fpath: path.join(dest, "data", "refs", "private---0.html"),
+            snapshot: true,
+          });
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            // await ENGINE_HOOKS.setupBasic(opts);
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+
+            await NoteTestUtilsV4.createNote({
+              fname: "private",
+              vault,
+              wsRoot,
+              body: ["- [[public]]", "- [[private]]", "- [[public.one]]"].join(
+                "\n"
+              ),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public",
+              vault,
+              wsRoot,
+              body: ["![[private]]", "[[public.one]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public.one",
+              vault,
+              wsRoot,
+              body: ["one"].join("\n"),
+            });
+
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "siteHierarchies", [
+                  "public",
+                ]);
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
+
+    test("WHEN note ref of a note with anchor ", async () => {
+      await runEngineTestV5(
+        async ({ engine, vaults, wsRoot }) => {
+          const dest = await setupExport({
+            engine,
+            wsRoot,
+            vaults,
+          });
+          await checkFile(
+            {
+              fpath: path.join(dest, "data", "refs", "private-anchor2--0.html"),
+              snapshot: true,
+              nomatch: ["anchor 1 content"],
+            },
+            "anchor 2 content"
+          );
+        },
+        {
+          expect,
+          preSetupHook: async (opts) => {
+            // await ENGINE_HOOKS.setupBasic(opts);
+            const vault = opts.vaults[0];
+            const wsRoot = opts.wsRoot;
+            await NoteTestUtilsV4.createNote({
+              fname: "private",
+              vault,
+              wsRoot,
+              body: [
+                "# anchor1",
+                "anchor 1 content",
+                "- [[public]]",
+                "- [[private]]",
+                "- [[public.one]]",
+                "# anchor2",
+                "anchor 2 content",
+              ].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public",
+              vault,
+              wsRoot,
+              body: ["![[private#anchor2]]"].join("\n"),
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "public.one",
+              vault,
+              wsRoot,
+              body: ["one", "![[private#anchor2]]"].join("\n"),
+            });
+
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "siteHierarchies", [
+                  "public",
+                ]);
+                ConfigUtils.setPublishProp(
+                  config,
+                  "siteUrl",
+                  "https://foo.com"
+                );
+                config.dev = {
+                  ...config.dev,
+                  enableExperimentalIFrameNoteRef: true,
+                };
+                return config;
+              },
+              { wsRoot }
+            );
+          },
+        }
+      );
+    });
   });
 });

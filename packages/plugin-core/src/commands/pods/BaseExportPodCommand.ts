@@ -4,6 +4,8 @@ import {
   DendronError,
   DNodeProps,
   DVault,
+  IProgress,
+  IProgressStep,
   NoteChangeEntry,
   NoteProps,
   NoteUtils,
@@ -87,7 +89,8 @@ export abstract class BaseExportPodCommand<
   }) {
     if (
       opts.destination === "clipboard" &&
-      opts.exportScope !== PodExportScope.Note
+      opts.exportScope !== PodExportScope.Note &&
+      opts.exportScope !== PodExportScope.Selection
     ) {
       throw new DendronError({
         message:
@@ -135,7 +138,7 @@ export abstract class BaseExportPodCommand<
         break;
       }
       case PodExportScope.Note: {
-        payload = this.getPropsForNoteScope();
+        payload = await this.getPropsForNoteScope();
 
         if (!payload) {
           vscode.window.showErrorMessage("Unable to get note payload.");
@@ -158,7 +161,7 @@ export abstract class BaseExportPodCommand<
           vscode.window.showErrorMessage("Unable to get vault payload.");
           return;
         }
-        payload = this.getPropsForVaultScope(vault);
+        payload = await this.getPropsForVaultScope(vault);
 
         if (!payload) {
           vscode.window.showErrorMessage("Unable to get vault payload.");
@@ -167,10 +170,18 @@ export abstract class BaseExportPodCommand<
         break;
       }
       case PodExportScope.Workspace: {
-        payload = this.getPropsForWorkspaceScope();
+        payload = await this.getPropsForWorkspaceScope();
 
         if (!payload) {
           vscode.window.showErrorMessage("Unable to get workspace payload.");
+          return;
+        }
+        break;
+      }
+      case PodExportScope.Selection: {
+        payload = await this.getPropsForSelectionScope();
+
+        if (!payload) {
           return;
         }
         break;
@@ -194,7 +205,7 @@ export abstract class BaseExportPodCommand<
     vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "Running Export...",
+        title: "Running Export ",
         cancellable: true,
       },
       async (_progress, token) => {
@@ -204,6 +215,7 @@ export abstract class BaseExportPodCommand<
 
         switch (opts.config.exportScope) {
           case PodExportScope.Note:
+          case PodExportScope.Selection:
             this.saveActiveDocumentBeforeExporting(opts);
             break;
           case PodExportScope.Vault:
@@ -211,7 +223,7 @@ export abstract class BaseExportPodCommand<
           case PodExportScope.LinksInSelection:
           case PodExportScope.Hierarchy:
           case PodExportScope.Workspace: {
-            await this.executeExportNotes(opts);
+            await this.executeExportNotes(opts, _progress);
 
             break;
           }
@@ -241,26 +253,17 @@ export abstract class BaseExportPodCommand<
    * Gets notes matching the selected hierarchy(for a specefic vault)
    * @returns
    */
-  private async getPropsForHierarchyScope(): Promise<
-    DNodeProps<any, any>[] | undefined
-  > {
-    return new Promise<DNodeProps<any, any>[] | undefined>((resolve) => {
-      this.hierarchySelector.getHierarchy().then((selection) => {
-        if (!selection) {
-          return resolve(undefined);
-        }
-        const { hierarchy, vault } = selection;
-        const notes = this.extension.getEngine().notes;
+  private async getPropsForHierarchyScope(): Promise<NoteProps[] | undefined> {
+    return this.hierarchySelector.getHierarchy().then(async (selection) => {
+      if (!selection) {
+        return undefined;
+      }
+      const { hierarchy, vault } = selection;
+      const notes = await this.extension
+        .getEngine()
+        .findNotes({ excludeStub: true, vault });
 
-        resolve(
-          Object.values(notes).filter(
-            (value) =>
-              value.fname.startsWith(hierarchy) &&
-              value.stub !== true &&
-              VaultUtils.isEqualV2(value.vault, vault)
-          )
-        );
-      });
+      return notes.filter((value) => value.fname.startsWith(hierarchy));
     });
   }
 
@@ -290,10 +293,18 @@ export abstract class BaseExportPodCommand<
               const filteredPayload = opts.payload.filter(
                 (note) => note.fname !== savedNote.fname
               );
-              await this.executeExportNotes({
-                ...opts,
-                payload: filteredPayload.concat(savedNote),
-              });
+              // if export scope is selection, export only the selection
+              if (opts.config.exportScope === PodExportScope.Selection) {
+                const selectionPayload = await this.getPropsForSelectionScope(
+                  filteredPayload.concat(savedNote)
+                );
+                if (selectionPayload) {
+                  opts.payload = selectionPayload;
+                  await this.executeExportNotes(opts);
+                }
+              } else {
+                await this.executeExportNotes(opts);
+              }
             }
           }
         );
@@ -316,13 +327,15 @@ export abstract class BaseExportPodCommand<
     }
   }
 
-  private async executeExportNotes(opts: {
-    config: Config;
-    payload: NoteProps[];
-  }): Promise<string | void> {
+  private async executeExportNotes(
+    opts: {
+      config: Config;
+      payload: NoteProps[];
+    },
+    progress?: IProgress<IProgressStep>
+  ): Promise<string | void> {
     const pod = this.createPod(opts.config);
-
-    const result = await pod.exportNotes(opts.payload);
+    const result = await pod.exportNotes(opts.payload, progress);
     return this.onExportComplete({
       exportReturnValue: result,
       payload: opts.payload,
@@ -330,7 +343,7 @@ export abstract class BaseExportPodCommand<
     });
   }
 
-  private getPropsForNoteScope(): DNodeProps[] | undefined {
+  private async getPropsForNoteScope(): Promise<DNodeProps[] | undefined> {
     //TODO: Switch this to a lookup controller, allow multiselect
     const fsPath = VSCodeUtils.getActiveTextEditor()?.document.uri.fsPath;
     if (!fsPath) {
@@ -350,36 +363,30 @@ export abstract class BaseExportPodCommand<
 
     const fname = path.basename(fsPath, ".md");
 
-    const maybeNote = NoteUtils.getNoteByFnameFromEngine({
-      fname,
-      vault,
-      engine,
-    }) as NoteProps;
+    const maybeNote = (await engine.findNotes({ fname, vault }))[0];
 
     if (!maybeNote) {
       vscode.window.showErrorMessage("couldn't find the note somehow");
     }
-    return [maybeNote!];
+    return [maybeNote];
   }
 
   /**
    *
    * @returns all notes in the workspace
    */
-  private getPropsForWorkspaceScope(): DNodeProps[] | undefined {
+  private async getPropsForWorkspaceScope(): Promise<DNodeProps[]> {
     const engine = this.extension.getEngine();
-    return Object.values(engine.notes).filter((notes) => notes.stub !== true);
+    return engine.findNotes({ excludeStub: true });
   }
 
   /**
    *
    * @returns all notes in the vault
    */
-  private getPropsForVaultScope(vault: DVault): DNodeProps[] | undefined {
+  private async getPropsForVaultScope(vault: DVault): Promise<DNodeProps[]> {
     const engine = this.extension.getEngine();
-    return Object.values(engine.notes).filter(
-      (note) => note.stub !== true && VaultUtils.isEqualV2(note.vault, vault)
-    );
+    return engine.findNotes({ excludeStub: true, vault });
   }
 
   addAnalyticsPayload(opts: { config: Config; payload: NoteProps[] }) {
@@ -387,5 +394,24 @@ export abstract class BaseExportPodCommand<
     return {
       exportScope: opts.config.exportScope,
     };
+  }
+
+  async getPropsForSelectionScope(payload?: NoteProps[]) {
+    const noteProps = payload || (await this.getPropsForNoteScope());
+    if (!noteProps) {
+      return;
+    }
+    // if selection, only export the selection.
+    const activeRange = await VSCodeUtils.extractRangeFromActiveEditor();
+    const { document, range } = activeRange || {};
+    const selectedText = document ? document.getText(range).trim() : "";
+    if (!selectedText) {
+      vscode.window.showWarningMessage(
+        "Please select the text in note to export"
+      );
+      return;
+    }
+    noteProps[0].body = selectedText;
+    return noteProps;
   }
 }

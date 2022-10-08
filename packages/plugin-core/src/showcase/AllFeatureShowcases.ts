@@ -1,10 +1,12 @@
 import { ShowcaseEntry } from "@dendronhq/engine-server";
 import { BacklinksPanelHoverTip } from "./BacklinksPanelHoverTip";
+import { CreateScratchNoteKeybindingTip } from "./CreateScratchNoteKeybindingTip";
 import { GraphPanelTip } from "./GraphPanelTip";
 import { GraphThemeTip } from "./GraphThemeTip";
 import { IFeatureShowcaseMessage } from "./IFeatureShowcaseMessage";
 import { MeetingNotesTip } from "./MeetingNotesTip";
 import { ObsidianImportTip } from "./ObsidianImportTip";
+import { SettingsUITip } from "./SettingsUITip";
 import {
   createSimpleTipOfDayMsg,
   createTipOfDayMsgWithDocsLink,
@@ -88,4 +90,6 @@ export const ALL_FEATURE_SHOWCASES: IFeatureShowcaseMessage[] = [
   PREVIEW_THEME_LINK,
   new BacklinksPanelHoverTip(),
   new ObsidianImportTip(),
+  new SettingsUITip(),
+  new CreateScratchNoteKeybindingTip(),
 ];

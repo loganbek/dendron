@@ -1,7 +1,7 @@
 {
   "name": "@dendronhq/engine-test-utils",
   "private": true,
-  "version": "0.100.1",
+  "version": "0.114.0",
   "description": "",
   "license": "GPLv3",
   "repository": {
@@ -29,13 +29,8 @@
     "build": "yarn compile",
     "buildCI": "yarn clean && yarn compile",
     "compile": "tsc -p tsconfig.build.json ",
-    "test": "cross-env LOG_LEVEL=error npx jest --bail",
     "coverage": "jest --coverage",
-    "watch": "yarn compile --watch",
-    "test:unit": "jest ",
-    "test:updateSnapshots": "jest -u",
-    "test:unit:debug": "cross-env NODE_ENV=test node --inspect-brk node_modules/.bin/jest --runInBand",
-    "test:watch": "jest --watch"
+    "watch": "yarn compile --watch"
   },
   "devDependencies": {
     "@testing-library/react": "12.1.0",
@@ -52,19 +47,21 @@
     "access": "public"
   },
   "dependencies": {
-    "@dendronhq/api-server": "^0.100.1",
-    "@dendronhq/common-all": "^0.100.1",
-    "@dendronhq/common-frontend": "^0.100.1",
-    "@dendronhq/common-server": "^0.100.1",
-    "@dendronhq/common-test-utils": "^0.100.1",
-    "@dendronhq/dendron-cli": "^0.100.1",
-    "@dendronhq/engine-server": "^0.100.1",
-    "@dendronhq/pods-core": "^0.100.1",
+    "@dendronhq/api-server": "^0.114.0",
+    "@dendronhq/common-all": "^0.114.0",
+    "@dendronhq/common-frontend": "^0.114.0",
+    "@dendronhq/common-server": "^0.114.0",
+    "@dendronhq/common-test-utils": "^0.114.0",
+    "@dendronhq/dendron-cli": "^0.114.0",
+    "@dendronhq/engine-server": "^0.114.0",
+    "@dendronhq/pods-core": "^0.114.0",
+    "@dendronhq/unified": "^0.114.0",
     "@reduxjs/toolkit": "^1.6.0",
     "@types/sinon": "^9.0.9",
     "cross-env": "^7.0.3",
     "fs-extra": "^9.0.1",
     "jest": "^28.1.0",
+    "jest-mock-extended": "^2.0.7",
     "lodash": "^4.17.20",
     "prompts": "^2.4.2",
     "react": "^17.0.2",

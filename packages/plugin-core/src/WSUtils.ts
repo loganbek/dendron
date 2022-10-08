@@ -1,22 +1,17 @@
-import { ServerUtils } from "@dendronhq/api-server";
 import {
   DVault,
-  NoteProps,
-  NoteUtils,
+  NotePropsMeta,
   SchemaModuleProps,
   VaultUtils,
 } from "@dendronhq/common-all";
 import { vault2Path } from "@dendronhq/common-server";
 import { HistoryEvent, HistoryService } from "@dendronhq/engine-server";
-import { ExecaChildProcess } from "execa";
 import path from "path";
 import * as vscode from "vscode";
 import { DENDRON_COMMANDS } from "./constants";
 import { ExtensionProvider } from "./ExtensionProvider";
 import { Logger } from "./logger";
 import { VSCodeUtils } from "./vsCodeUtils";
-import { getDWorkspace, getExtension } from "./workspace";
-import { WSUtilsV2 } from "./WSUtilsV2";
 
 /**
  * Prefer to use WSUtilsV2 instead of this class to prevent circular dependencies.
@@ -24,37 +19,8 @@ import { WSUtilsV2 } from "./WSUtilsV2";
  * See [[Migration of static  methods to a non-static|dendron://dendron.docs/dev.ref.impactful-change-notice#migration-of-static--methods-to-a-non-static]]
  * */
 export class WSUtils {
-  static handleServerProcess({
-    subprocess,
-    context,
-    onExit,
-  }: {
-    subprocess: ExecaChildProcess;
-    context: vscode.ExtensionContext;
-    onExit: Parameters<typeof ServerUtils["onProcessExit"]>[0]["cb"];
-  }) {
-    const ctx = "WSUtils.handleServerProcess";
-    Logger.info({ ctx, msg: "subprocess running", pid: subprocess.pid });
-    // if extension closes, reap server process
-    context.subscriptions.push(
-      new vscode.Disposable(() => {
-        Logger.info({ ctx, msg: "kill server start" });
-        if (subprocess.pid) {
-          process.kill(subprocess.pid);
-        }
-        Logger.info({ ctx, msg: "kill server end" });
-      })
-    );
-    // if server process has issues, prompt user to restart
-    ServerUtils.onProcessExit({
-      // @ts-ignore
-      subprocess,
-      cb: onExit,
-    });
-  }
-
-  static showInitProgress() {
-    const ctx = "showInitProgress";
+  static showActivateProgress() {
+    const ctx = "showActivateProgress";
     vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
@@ -124,7 +90,7 @@ export class WSUtils {
   /**
     @deprecated. Use same method in {@link WSUtilsV2}
   **/
-  static getNoteFromPath(fsPath: string) {
+  static async getNoteFromPath(fsPath: string) {
     const { engine } = ExtensionProvider.getDWorkspace();
     const fname = path.basename(fsPath, ".md");
     let vault: DVault;
@@ -134,11 +100,7 @@ export class WSUtils {
       // No vault
       return undefined;
     }
-    return NoteUtils.getNoteByFnameFromEngine({
-      fname,
-      vault,
-      engine,
-    });
+    return (await engine.findNotes({ fname, vault }))[0];
   }
 
   /**
@@ -151,18 +113,9 @@ export class WSUtils {
   /**
     @deprecated. Use same method in {@link WSUtilsV2}
   **/
-  static getNoteFromDocument(document: vscode.TextDocument) {
+  static async getNoteFromDocument(document: vscode.TextDocument) {
     return this.getNoteFromPath(document.uri.fsPath);
   }
-
-  /**
-    @deprecated. Use same method in {@link WSUtilsV2}
-  **/
-  static tryGetNoteFromDocument = (
-    document: vscode.TextDocument
-  ): NoteProps | undefined => {
-    return new WSUtilsV2(getExtension()).tryGetNoteFromDocument(document);
-  };
 
   /**
     @deprecated. Use same method in {@link WSUtilsV2}
@@ -180,7 +133,7 @@ export class WSUtils {
     vault: DVault,
     fnameWithExtension: string
   ) {
-    const wsRoot = getDWorkspace().wsRoot;
+    const { wsRoot } = ExtensionProvider.getDWorkspace();
     const vpath = vault2Path({ vault, wsRoot });
     const notePath = path.join(vpath, fnameWithExtension);
     const editor = await VSCodeUtils.openFileInEditor(
@@ -196,7 +149,7 @@ export class WSUtils {
     vault: DVault;
     fname: string;
   }) {
-    const { wsRoot } = getDWorkspace();
+    const { wsRoot } = ExtensionProvider.getDWorkspace();
     const vpath = vault2Path({ vault, wsRoot });
     const notePath = path.join(vpath, `${fname}.md`);
     const editor = await VSCodeUtils.openFileInEditor(
@@ -208,7 +161,7 @@ export class WSUtils {
   /**
     @deprecated. Use same method in {@link WSUtilsV2}
   **/
-  static async openNote(note: NoteProps) {
+  static async openNote(note: NotePropsMeta) {
     const { vault, fname } = note;
     const fnameWithExtension = `${fname}.md`;
     return this.openFileInEditorUsingFullFname(vault, fnameWithExtension);

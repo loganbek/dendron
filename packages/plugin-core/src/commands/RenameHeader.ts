@@ -1,28 +1,29 @@
 import {
   DendronError,
+  DNodeUtils,
   extractNoteChangeEntryCounts,
   getSlugger,
-  RenameNotePayload,
-  RespV2,
+  NoteProps,
+  RenameNoteResp,
   VaultUtils,
 } from "@dendronhq/common-all";
 import {
   AnchorUtils,
   DendronASTDest,
   DendronASTTypes,
-  Heading,
   MDUtilsV5,
   visit,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import { Range, window } from "vscode";
 import { DENDRON_COMMANDS } from "../constants";
 import { delayedUpdateDecorations } from "../features/windowDecorations";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { getAnalyticsPayload } from "../utils/analytics";
-import { getExtension } from "../workspace";
 import { BasicCommand } from "./base";
-import { WSUtils } from "../WSUtils";
+import { ProxyMetricUtils } from "../utils/ProxyMetricUtils";
+import { Heading } from "@dendronhq/engine-server";
+import { IDendronExtension } from "../dendronExtensionInterface";
 
 type CommandOpts =
   | {
@@ -37,23 +38,38 @@ type CommandOpts =
       newHeader?: string;
       /** added for contextual UI analytics. */
       source?: string;
+      /** current note that the rename is happening */
+      note?: NoteProps;
     }
   | undefined;
-export type CommandOutput = RespV2<RenameNotePayload> | undefined;
+export type CommandOutput = RenameNoteResp | undefined;
 
 export class RenameHeaderCommand extends BasicCommand<
   CommandOpts,
   CommandOutput
 > {
   key = DENDRON_COMMANDS.RENAME_HEADER.key;
+  private extension: IDendronExtension;
+
+  constructor(ext: IDendronExtension) {
+    super();
+    this.extension = ext;
+  }
 
   async gatherInputs(
     opts: CommandOpts
   ): Promise<Required<CommandOpts> | undefined> {
     let { oldHeader, newHeader, source } = opts || {};
+    const { editor, selection } = VSCodeUtils.getSelection();
+    const { wsUtils } = this.extension;
+    const note = await wsUtils.getActiveNote();
+    if (_.isUndefined(note)) {
+      throw new DendronError({
+        message: "You must first open a note to rename a header.",
+      });
+    }
     if (_.isUndefined(oldHeader)) {
       // parse from current selection
-      const { editor, selection } = VSCodeUtils.getSelection();
       if (!editor || !selection)
         throw new DendronError({
           message: "You must first select the header you want to rename.",
@@ -94,18 +110,24 @@ export class RenameHeaderCommand extends BasicCommand<
     if (_.isUndefined(source)) {
       source = "command palette";
     }
-    return { oldHeader, newHeader, source };
+    return {
+      oldHeader,
+      newHeader,
+      source,
+      note,
+    };
   }
 
   async execute(opts: CommandOpts): Promise<CommandOutput> {
     const { oldHeader, newHeader } = opts || {};
     const ctx = "RenameHeaderCommand";
     this.L.info({ ctx, oldHeader, newHeader, msg: "enter" });
-    const engine = getExtension().getEngine();
+    const engine = this.extension.getEngine();
     const editor = VSCodeUtils.getActiveTextEditor();
     if (_.isUndefined(newHeader) || _.isUndefined(oldHeader) || !editor) return;
-    const document = editor.document;
-    const note = WSUtils.getNoteFromDocument(document);
+    const note = await this.extension.wsUtils.getNoteFromDocument(
+      editor.document
+    );
     if (!note) return;
 
     const noteLoc = {
@@ -145,17 +167,66 @@ export class RenameHeaderCommand extends BasicCommand<
         anchorHeader: slugger.slug(newAnchorHeader),
         alias: newAnchorHeader,
       },
+      metaOnly: true,
     });
     return out;
   }
 
+  trackProxyMetrics({
+    opts,
+    noteChangeEntryCounts,
+  }: {
+    opts: CommandOpts;
+    noteChangeEntryCounts: {
+      createdCount: number;
+      deletedCount: number;
+      updatedCount: number;
+    };
+  }) {
+    if (_.isUndefined(opts)) {
+      return;
+    }
+
+    const { note } = opts;
+    if (_.isUndefined(note)) {
+      return;
+    }
+
+    const engine = this.extension.getEngine();
+    const { vaults } = engine;
+
+    ProxyMetricUtils.trackRefactoringProxyMetric({
+      props: {
+        command: this.key,
+        numVaults: vaults.length,
+        traits: note.traits || [],
+        numChildren: note.children.length,
+        numLinks: note.links.length,
+        numChars: note.body.length,
+        noteDepth: DNodeUtils.getDepth(note),
+      },
+      extra: {
+        ...noteChangeEntryCounts,
+      },
+    });
+  }
+
   addAnalyticsPayload(opts?: CommandOpts, out?: CommandOutput) {
-    const payload =
-      out && out.data !== undefined
+    const noteChangeEntryCounts =
+      out?.data !== undefined
         ? { ...extractNoteChangeEntryCounts(out.data) }
-        : {};
+        : {
+            createdCount: 0,
+            updatedCount: 0,
+            deletedCount: 0,
+          };
+    try {
+      this.trackProxyMetrics({ opts, noteChangeEntryCounts });
+    } catch (error) {
+      this.L.error({ error });
+    }
     return {
-      ...payload,
+      ...noteChangeEntryCounts,
       ...getAnalyticsPayload(opts?.source),
     };
   }

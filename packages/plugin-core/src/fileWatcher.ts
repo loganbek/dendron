@@ -1,15 +1,17 @@
 import {
   ContextualUIEvents,
   DVault,
+  ErrorUtils,
   NoteProps,
   NoteUtils,
   VaultUtils,
   WorkspaceOpts,
   WorkspaceType,
 } from "@dendronhq/common-all";
-import { file2Note } from "@dendronhq/common-server";
+import { DConfig, file2Note } from "@dendronhq/common-server";
 import {
   EngineFileWatcher,
+  EngineUtils,
   FileWatcherAdapter,
   HistoryService,
 } from "@dendronhq/engine-server";
@@ -114,14 +116,14 @@ export class FileWatcher {
         fsPath,
         wsRoot,
       });
-      note = file2Note(fsPath, vault);
+      const resp = file2Note(fsPath, vault);
+      if (ErrorUtils.isErrorResp(resp)) {
+        throw resp.error;
+      }
+      note = resp.data;
 
       // check if note exist as
-      const maybeNote = NoteUtils.getNoteByFnameFromEngine({
-        fname,
-        vault,
-        engine,
-      });
+      const maybeNote = (await engine.findNotesMeta({ fname, vault }))[0];
       if (maybeNote) {
         note = NoteUtils.hydrate({ noteRaw: note, noteHydrated: maybeNote });
         delete note["stub"];
@@ -129,14 +131,13 @@ export class FileWatcher {
         //TODO recognise vscode's create new file menu option to create a note.
       }
 
-      note = await NoteUtils.updateNoteMetadata({
+      await EngineUtils.refreshNoteLinksAndAnchors({
         note,
         fmChangeOnly: false,
         engine,
+        config: DConfig.readConfigSync(engine.wsRoot),
       });
-      await engine.updateNote(note, {
-        newNode: true,
-      });
+      await engine.writeNote(note);
     } catch (err: any) {
       this.L.error({ ctx, error: err });
       throw err;
@@ -178,7 +179,7 @@ export class FileWatcher {
         wsRoot,
       });
       this.L.debug({ ctx, fsPath, msg: "preparing to delete" });
-      const nodeToDelete = (await engine.findNotes({ fname, vault }))[0];
+      const nodeToDelete = (await engine.findNotesMeta({ fname, vault }))[0];
       if (_.isUndefined(nodeToDelete)) {
         throw new Error(`${fname} not found`);
       }

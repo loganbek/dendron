@@ -3,19 +3,20 @@ import { vault2Path } from "@dendronhq/common-server";
 import { HistoryEvent } from "@dendronhq/engine-server";
 import _ from "lodash";
 import path from "path";
-import { TextEditor, Uri, window } from "vscode";
+import { Disposable, TextEditor, Uri, window } from "vscode";
 import {
   OldNewLocation,
   PickerUtilsV2,
   ProviderAcceptHooks,
 } from "../components/lookup/utils";
 import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
-import { DENDRON_COMMANDS } from "../constants";
+import { DendronContext, DENDRON_COMMANDS } from "../constants";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { FileItem } from "../external/fileutils/FileItem";
 import { VSCodeUtils } from "../vsCodeUtils";
-import { getDWorkspace, getExtension } from "../workspace";
 import { BaseCommand } from "./base";
+import { AutoCompleter } from "../utils/autoCompleter";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
 
 type CommandInput = {
   move: OldNewLocation[];
@@ -34,18 +35,26 @@ type CommandOutput = {
 
 export { CommandOutput as RenameNoteOutputV2a };
 
+/**
+ * This is not `Dendron: Rename Note`. For that, See [[../packages/plugin-core/src/commands/RenameNoteCommand.ts]]
+ * This is an plugin internal command that is used as part of refactor hierarchy and the rename provider implementation.
+ *
+ * TODO: refactor this class to avoid confusion.
+ * Possibly consolidate renaming logic in one place.
+ */
 export class RenameNoteV2aCommand extends BaseCommand<
   CommandOpts,
   CommandOutput,
   CommandInput
 > {
-  key = DENDRON_COMMANDS.RENAME_NOTE.key;
+  key = DENDRON_COMMANDS.RENAME_NOTE_V2A.key;
   public silent?: boolean;
 
   async gatherInputs(): Promise<CommandInput> {
     const extension = ExtensionProvider.getExtension();
     const lc = extension.lookupControllerFactory.create({
       nodeType: "note",
+      title: "Rename note",
     });
     const provider = extension.noteLookupProviderFactory.create("rename", {
       allowNewNote: true,
@@ -57,12 +66,15 @@ export class RenameNoteV2aCommand extends BaseCommand<
       ".md"
     );
     return new Promise((resolve) => {
+      let disposable: Disposable;
       NoteLookupProviderUtils.subscribe({
         id: "rename",
         controller: lc,
         logger: this.L,
         onDone: (event: HistoryEvent) => {
           resolve({ move: event.data.onAcceptHookResp });
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
       lc.show({
@@ -70,6 +82,20 @@ export class RenameNoteV2aCommand extends BaseCommand<
         placeholder: "foo",
         provider,
         initialValue,
+      });
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
       });
     });
   }
@@ -80,7 +106,8 @@ export class RenameNoteV2aCommand extends BaseCommand<
     const vault = PickerUtilsV2.getOrPromptVaultForOpenEditor();
     const move = inputs.move[0];
     const fname = move.newLoc.fname;
-    const vpath = vault2Path({ vault, wsRoot: getDWorkspace().wsRoot });
+    const { wsRoot } = ExtensionProvider.getDWorkspace();
+    const vpath = vault2Path({ vault, wsRoot });
     const newUri = Uri.file(path.join(vpath, fname + ".md"));
     return {
       files: [{ oldUri, newUri }],
@@ -107,7 +134,7 @@ export class RenameNoteV2aCommand extends BaseCommand<
   async execute(opts: CommandOpts) {
     const ctx = "RenameNoteV2a";
     this.L.info({ ctx, msg: "enter", opts });
-    const ext = getExtension();
+    const ext = ExtensionProvider.getExtension();
     try {
       const { files } = opts;
       const { newUri, oldUri } = files[0];
@@ -116,9 +143,10 @@ export class RenameNoteV2aCommand extends BaseCommand<
       }
       const engine = ext.getEngine();
       const oldFname = DNodeUtils.fname(oldUri.fsPath);
+      const { wsRoot } = ExtensionProvider.getDWorkspace();
       const vault = VaultUtils.getVaultByFilePath({
         fsPath: oldUri.fsPath,
-        wsRoot: getDWorkspace().wsRoot,
+        wsRoot,
         vaults: engine.vaults,
       });
 

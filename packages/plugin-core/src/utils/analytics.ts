@@ -7,12 +7,9 @@ import {
   genUUID,
   getStage,
   Time,
-} from "@dendronhq/common-all";
-import {
-  SegmentClient,
-  SegmentUtils,
   VSCodeIdentifyProps,
-} from "@dendronhq/common-server";
+} from "@dendronhq/common-all";
+import { SegmentClient, SegmentUtils } from "@dendronhq/common-server";
 import { MetadataService } from "@dendronhq/engine-server";
 import * as Sentry from "@sentry/node";
 import _ from "lodash";
@@ -42,6 +39,7 @@ export class AnalyticsUtils {
   static getVSCodeIdentifyProps(): VSCodeIdentifyProps {
     const {
       appName,
+      appHost,
       isNewAppInstall,
       language,
       machineId,
@@ -54,6 +52,7 @@ export class AnalyticsUtils {
       ideVersion: vscode.version,
       ideFlavor: appName,
       appVersion: VersionProvider.version(),
+      appHost,
       userAgent: appName,
       isNewAppInstall,
       isTelemetryEnabled,
@@ -232,16 +231,19 @@ export class AnalyticsUtils {
     ws,
   }: {
     context: vscode.ExtensionContext;
-    ws: DWorkspaceV2;
+    ws?: DWorkspaceV2;
   }) {
     if (getStage() === "prod") {
       const segmentResidualCacheDir = context.globalStorageUri.fsPath;
       fs.ensureDir(segmentResidualCacheDir);
 
-      setupSegmentClient(
+      setupSegmentClient({
         ws,
-        path.join(segmentResidualCacheDir, "segmentresidualcache.log")
-      );
+        cachePath: path.join(
+          segmentResidualCacheDir,
+          "segmentresidualcache.log"
+        ),
+      });
 
       // Try to flush the Segment residual cache every hour:
       (function tryFlushSegmentCache() {

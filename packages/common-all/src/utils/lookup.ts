@@ -5,6 +5,7 @@ import {
   NoteProps,
   NotePropsByIdDict,
   NoteUtils,
+  ReducedDEngine,
 } from "..";
 
 const PAGINATE_LIMIT = 50;
@@ -65,6 +66,15 @@ export class NoteLookupUtils {
     return lastDotIndex < 0 ? "" : qs.slice(0, lastDotIndex + 1);
   };
 
+  static fetchRootResultsFromEngine = async (engine: ReducedDEngine) => {
+    // TODO: Support findNotesMeta
+    const roots = await engine.findNotes({ fname: "root" });
+
+    const childrenOfRoot = roots.flatMap((ent) => ent.children);
+    const childrenOfRootNotes = await engine.bulkGetNotes(childrenOfRoot);
+    return roots.concat(childrenOfRootNotes.data);
+  };
+
   static fetchRootResults = (notes: NotePropsByIdDict) => {
     const roots: NoteProps[] = NoteUtils.getRoots(notes);
 
@@ -72,7 +82,6 @@ export class NoteLookupUtils {
     const childrenOfRootNotes = _.map(childrenOfRoot, (ent) => notes[ent]);
     return roots.concat(childrenOfRootNotes);
   };
-
   /**
    * The core of Dendron lookup logic
    */
@@ -85,12 +94,11 @@ export class NoteLookupUtils {
     engine: DEngineClient;
     showDirectChildrenOnly?: boolean;
   }): Promise<NoteProps[]> {
-    const { notes } = engine;
     const qsClean = this.slashToDot(qsRaw);
 
     // special case: if query is empty, fetch top level notes
     if (_.isEmpty(qsClean)) {
-      return NoteLookupUtils.fetchRootResults(notes);
+      return NoteLookupUtils.fetchRootResultsFromEngine(engine);
     }
 
     // otherwise, query engine for results
@@ -107,6 +115,11 @@ export class NoteLookupUtils {
     // limit number of results. currently, this is hardcoded and we don't paginate
     // this is okay because we rely on user refining query to get more results
     let nodes = resp.data;
+
+    if (!nodes) {
+      return [];
+    }
+
     if (nodes.length > PAGINATE_LIMIT) {
       nodes = nodes.slice(0, PAGINATE_LIMIT);
     }

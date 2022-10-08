@@ -25,10 +25,12 @@ suite("InsertNoteIndex", function () {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
         onInit: async ({ engine }) => {
-          const notes = engine.notes;
-          const cmd = new InsertNoteIndexCommand();
+          const foo = (await engine.getNoteMeta("foo")).data!;
+          const cmd = new InsertNoteIndexCommand(
+            ExtensionProvider.getExtension()
+          );
 
-          await WSUtils.openNote(notes["foo"]);
+          await WSUtils.openNote(foo);
           const editor = VSCodeUtils.getActiveTextEditorOrThrow();
           editor.selection = new vscode.Selection(9, 0, 9, 0);
           await cmd.execute({});
@@ -51,10 +53,12 @@ suite("InsertNoteIndex", function () {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
         onInit: async ({ engine }) => {
-          const notes = engine.notes;
-          const cmd = new InsertNoteIndexCommand();
+          const foo = (await engine.getNoteMeta("foo")).data!;
+          const cmd = new InsertNoteIndexCommand(
+            ExtensionProvider.getExtension()
+          );
 
-          await WSUtils.openNote(notes["foo"]);
+          await WSUtils.openNote(foo);
           const editor = VSCodeUtils.getActiveTextEditorOrThrow();
           editor.selection = new vscode.Selection(9, 0, 9, 0);
           await cmd.execute({ marker: true });
@@ -98,10 +102,12 @@ suite("InsertNoteIndex", function () {
             { wsRoot }
           );
 
-          const notes = engine.notes;
-          const cmd = new InsertNoteIndexCommand();
+          const foo = (await engine.getNoteMeta("foo")).data!;
+          const cmd = new InsertNoteIndexCommand(
+            ExtensionProvider.getExtension()
+          );
 
-          await WSUtils.openNote(notes["foo"]);
+          await WSUtils.openNote(foo);
           const editor = VSCodeUtils.getActiveTextEditorOrThrow();
           editor.selection = new vscode.Selection(9, 0, 9, 0);
           await cmd.execute({});
@@ -136,10 +142,12 @@ suite("InsertNoteIndex", function () {
             { wsRoot }
           );
 
-          const notes = engine.notes;
-          const cmd = new InsertNoteIndexCommand();
+          const foo = (await engine.getNoteMeta("foo")).data!;
+          const cmd = new InsertNoteIndexCommand(
+            ExtensionProvider.getExtension()
+          );
 
-          await WSUtils.openNote(notes["foo"]);
+          await WSUtils.openNote(foo);
           const editor = VSCodeUtils.getActiveTextEditorOrThrow();
           editor.selection = new vscode.Selection(9, 0, 9, 0);
           await cmd.execute({});
@@ -184,10 +192,12 @@ suite("InsertNoteIndex", function () {
     () => {
       test("THEN insert note index add tags as index", async () => {
         const engine = ExtensionProvider.getEngine();
-        const rootNote = engine.notes["root"];
+        const rootNote = (await engine.getNoteMeta("root")).data!;
         await ExtensionProvider.getWSUtils().openNote(rootNote);
         const editor = VSCodeUtils.getActiveTextEditorOrThrow();
-        const cmd = new InsertNoteIndexCommand();
+        const cmd = new InsertNoteIndexCommand(
+          ExtensionProvider.getExtension()
+        );
         editor.selection = new vscode.Selection(9, 0, 9, 0);
         await cmd.execute({});
         const body = editor.document.getText();
@@ -228,10 +238,12 @@ suite("InsertNoteIndex", function () {
     () => {
       test("THEN insert note index add tags as index", async () => {
         const engine = ExtensionProvider.getEngine();
-        const rootNote = engine.notes["root"];
+        const rootNote = (await engine.getNoteMeta("root")).data!;
         await ExtensionProvider.getWSUtils().openNote(rootNote);
         const editor = VSCodeUtils.getActiveTextEditorOrThrow();
-        const cmd = new InsertNoteIndexCommand();
+        const cmd = new InsertNoteIndexCommand(
+          ExtensionProvider.getExtension()
+        );
         editor.selection = new vscode.Selection(9, 0, 9, 0);
         await cmd.execute({});
         const body = editor.document.getText();

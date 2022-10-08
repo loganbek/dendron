@@ -3,7 +3,10 @@ import {
   DEngineClient,
   extractNoteChangeEntryCounts,
   NoteChangeEntry,
+  NoteProps,
+  RefactoringCommandUsedPayload,
   RenameNoteOpts,
+  StatisticsUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
 import { vault2Path } from "@dendronhq/common-server";
@@ -11,7 +14,7 @@ import { HistoryEvent } from "@dendronhq/engine-server";
 import _ from "lodash";
 import _md from "markdown-it";
 import path from "path";
-import { ProgressLocation, Uri, ViewColumn, window } from "vscode";
+import { Disposable, ProgressLocation, Uri, ViewColumn, window } from "vscode";
 import { MultiSelectBtn } from "../components/lookup/buttons";
 import { LookupControllerV3CreateOpts } from "../components/lookup/LookupControllerV3Interface";
 import {
@@ -19,21 +22,24 @@ import {
   ProviderAcceptHooks,
 } from "../components/lookup/utils";
 import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
-import { DENDRON_COMMANDS } from "../constants";
+import { DendronContext, DENDRON_COMMANDS } from "../constants";
 import { FileItem } from "../external/fileutils/FileItem";
 import { UNKNOWN_ERROR_MSG } from "../logger";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { ProceedCancel, QuickPickUtil } from "../utils/quickPick";
-import { getDWorkspace, getExtension } from "../workspace";
 import { BasicCommand } from "./base";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { NoteLookupProviderSuccessResp } from "../components/lookup/LookupProviderV3Interface";
+import { ProxyMetricUtils } from "../utils/ProxyMetricUtils";
+import { IDendronExtension } from "../dendronExtensionInterface";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
+import { AutoCompleter } from "../utils/autoCompleter";
 
 type CommandInput = any;
 
 const md = _md();
 
-type CommandOpts = {
+export type CommandOpts = {
   moves: RenameNoteOpts[];
   /**
    * Show notification message
@@ -57,9 +63,11 @@ type CommandOpts = {
   useSameVault?: boolean;
   /** Defaults to true. */
   allowMultiselect?: boolean;
+  /** set a custom title for the quick input. Used for rename note */
+  title?: string;
 };
 
-type CommandOutput = {
+export type CommandOutput = {
   changed: NoteChangeEntry[];
 };
 
@@ -76,6 +84,19 @@ function isMoveNecessary(move: RenameNoteOpts) {
 
 export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
   key = DENDRON_COMMANDS.MOVE_NOTE.key;
+  private extension: IDendronExtension;
+  _proxyMetricPayload:
+    | (RefactoringCommandUsedPayload & {
+        extra: {
+          [key: string]: any;
+        };
+      })
+    | undefined;
+
+  constructor(ext: IDendronExtension) {
+    super();
+    this.extension = ext;
+  }
 
   async sanityCheck() {
     if (_.isUndefined(VSCodeUtils.getActiveTextEditor())) {
@@ -119,36 +140,113 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
     );
 
     return new Promise((resolve) => {
+      let disposable: Disposable;
+
       NoteLookupProviderUtils.subscribe({
         id: "move",
         controller: lc,
         logger: this.L,
-        onDone: (event: HistoryEvent) => {
+        onDone: async (event: HistoryEvent) => {
           const data =
             event.data as NoteLookupProviderSuccessResp<OldNewLocation>;
           if (data.cancel) {
             resolve(undefined);
             return;
           }
+          await this.prepareProxyMetricPayload(data);
           const opts: CommandOpts = {
             moves: this.getDesiredMoves(data),
           };
           resolve(opts);
+
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
         onError: (event: HistoryEvent) => {
           const error = event.data.error as DendronError;
           window.showErrorMessage(error.message);
           resolve(undefined);
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
       lc.show({
-        title: "Move note",
+        title: opts?.title || "Move note",
         placeholder: "foo",
         provider,
         initialValue: opts?.initialValue || initialValue,
         nonInteractive: opts?.nonInteractive,
       });
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
+      });
     });
+  }
+
+  private async prepareProxyMetricPayload(
+    data: NoteLookupProviderSuccessResp<OldNewLocation>
+  ) {
+    const ctx = `${this.key}:prepareProxyMetricPayload`;
+    const engine = ExtensionProvider.getEngine();
+    let items: NoteProps[];
+    if (data.selectedItems.length === 1) {
+      // single move. find note from resp
+      const { oldLoc } = data.onAcceptHookResp[0];
+      const { fname, vaultName: vname } = oldLoc;
+      if (fname !== undefined && vname !== undefined) {
+        const vault = VaultUtils.getVaultByName({
+          vaults: engine.vaults,
+          vname,
+        });
+        const note = (await engine.findNotes({ fname, vault }))[0];
+        items = [note];
+      } else {
+        items = [];
+      }
+    } else {
+      const notes = data.selectedItems.map(
+        (item): NoteProps => _.omit(item, ["label", "detail", "alwaysShow"])
+      );
+      items = notes;
+    }
+
+    const basicStats = StatisticsUtils.getBasicStatsFromNotes(items);
+    if (basicStats === undefined) {
+      this.L.error({ ctx, message: "failed to get basic stats from notes." });
+      return;
+    }
+
+    const { numChildren, numLinks, numChars, noteDepth, ...rest } = basicStats;
+
+    const traitsAcc = items.flatMap((item) =>
+      item.traits && item.traits.length > 0 ? item.traits : []
+    );
+    const traitsSet = new Set(traitsAcc);
+
+    this._proxyMetricPayload = {
+      command: this.key,
+      numVaults: engine.vaults.length,
+      traits: [...traitsSet],
+      numChildren,
+      numLinks,
+      numChars,
+      noteDepth,
+      extra: {
+        numProcessed: items.length,
+        ...rest,
+      },
+    };
   }
 
   private getDesiredMoves(
@@ -194,11 +292,10 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
       allowMultiselect: true,
     });
 
-    const { engine } = getDWorkspace();
-    const ext = getExtension();
+    const { engine, wsRoot } = this.extension.getDWorkspace();
 
-    if (ext.fileWatcher && !opts.noPauseWatcher) {
-      ext.fileWatcher.pause = true;
+    if (this.extension.fileWatcher && !opts.noPauseWatcher) {
+      this.extension.fileWatcher.pause = true;
     }
     try {
       this.L.info({ ctx, opts });
@@ -228,14 +325,14 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
       if (opts.closeAndOpenFile) {
         // During bulk move we will only open a single file that was moved to avoid
         // cluttering user tabs with all moved files.
-        await closeCurrentFileOpenMovedFile(engine, opts.moves[0]);
+        await closeCurrentFileOpenMovedFile(engine, opts.moves[0], wsRoot);
       }
       return { changed };
     } finally {
-      if (ext.fileWatcher && !opts.noPauseWatcher) {
+      if (this.extension.fileWatcher && !opts.noPauseWatcher) {
         setTimeout(() => {
-          if (ext.fileWatcher) {
-            ext.fileWatcher.pause = false;
+          if (this.extension.fileWatcher) {
+            this.extension.fileWatcher.pause = false;
           }
           this.L.info({ ctx, msg: "exit" });
         }, 3000);
@@ -316,19 +413,57 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
     panel.webview.html = md.render(contentLines.join("\n"));
   }
 
-  addAnalyticsPayload(_opts?: CommandOpts, out?: CommandOutput) {
-    const payload =
-      out !== undefined ? { ...extractNoteChangeEntryCounts(out.changed) } : {};
-    return payload;
+  trackProxyMetrics({
+    opts,
+    noteChangeEntryCounts,
+  }: {
+    opts: CommandOpts;
+    noteChangeEntryCounts: {
+      createdCount: number;
+      deletedCount: number;
+      updatedCount: number;
+    };
+  }) {
+    if (this._proxyMetricPayload === undefined) {
+      // something went wrong during prep. don't track.
+      return;
+    }
+    const { extra, ...props } = this._proxyMetricPayload;
+
+    ProxyMetricUtils.trackRefactoringProxyMetric({
+      props,
+      extra: {
+        ...extra,
+        ...noteChangeEntryCounts,
+        isMultiMove: isMultiMove(opts.moves),
+      },
+    });
+  }
+
+  addAnalyticsPayload(opts: CommandOpts, out: CommandOutput) {
+    const noteChangeEntryCounts =
+      out !== undefined
+        ? { ...extractNoteChangeEntryCounts(out.changed) }
+        : {
+            createdCount: 0,
+            updatedCount: 0,
+            deletedCount: 0,
+          };
+    try {
+      this.trackProxyMetrics({ opts, noteChangeEntryCounts });
+    } catch (error) {
+      this.L.error({ error });
+    }
+
+    return noteChangeEntryCounts;
   }
 }
 
 async function closeCurrentFileOpenMovedFile(
   engine: DEngineClient,
-  moveOpts: RenameNoteOpts
+  moveOpts: RenameNoteOpts,
+  wsRoot: string
 ) {
-  const wsRoot = getDWorkspace().wsRoot;
-
   const vault = VaultUtils.getVaultByName({
     vaults: engine.vaults,
     vname: moveOpts.newLoc.vaultName!,

@@ -1,12 +1,12 @@
+import { DConfig } from "@dendronhq/common-server";
 import { AssertUtils, TestPresetEntryV4 } from "@dendronhq/common-test-utils";
 import {
   ExtendedImage,
   DendronASTDest,
   DendronASTTypes,
   MDUtilsV5,
-  ProcMode,
   UnistNode,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import { runEngineTestV5 } from "../../../engine";
 import { ENGINE_HOOKS } from "../../../presets";
@@ -16,9 +16,7 @@ import { createProcForTest, createProcTests, ProcTests } from "./utils";
 const { getDescendantNode } = TestUnifiedUtils;
 
 function proc() {
-  return MDUtilsV5.procRehypeParse({
-    mode: ProcMode.NO_DATA,
-  });
+  return MDUtilsV5.procRemarkParseNoData({}, { dest: DendronASTDest.HTML });
 }
 
 function runAllTests(opts: { name: string; testCases: ProcTests[] }) {
@@ -106,11 +104,12 @@ describe("extendedImage", () => {
   describe("rendering", () => {
     const SINGLE_STYLE_PROP = createProcTests({
       name: "single style prop",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(
           `![alt text](/assets/image.png){width: 50%}`
@@ -165,11 +164,12 @@ describe("extendedImage", () => {
 
     const NO_ALT = createProcTests({
       name: "no alt",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(`![](/assets/image.png){width: 50%}`);
         return { resp };
@@ -220,11 +220,12 @@ describe("extendedImage", () => {
 
     const MULTIPLE_STYLE_PROPS = createProcTests({
       name: "multiple style props",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(
           `![alt text](/assets/image.png){width: 50%, max-height: 400px, opacity: 0.8}`

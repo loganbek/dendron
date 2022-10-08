@@ -5,12 +5,12 @@ import {
   isBlockAnchor,
   isLineAnchor,
   NoteChangeEntry,
-  NoteProps,
+  NotePropsMeta,
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { isInsidePath } from "@dendronhq/common-server";
-import { AnchorUtils } from "@dendronhq/engine-server";
+import { DConfig, isInsidePath } from "@dendronhq/common-server";
+import { AnchorUtils } from "@dendronhq/unified";
 import _ from "lodash";
 import path from "path";
 import { Disposable, TextEditor, window } from "vscode";
@@ -19,7 +19,7 @@ import { PickerUtilsV2 } from "../components/lookup/utils";
 import { DENDRON_COMMANDS } from "../constants";
 import { IDendronExtension } from "../dendronExtensionInterface";
 import { clipboard } from "../utils";
-import { getBlockAnchorAt, getSelectionAnchors } from "../utils/editor";
+import { EditorUtils } from "../utils/EditorUtils";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { BasicCommand } from "./base";
 
@@ -110,7 +110,7 @@ export class CopyNoteLinkCommand
     if (!editor.selection.isEmpty) {
       // First check if there's already a block anchor where the user selected.
       // If there is, we'll just use the existing anchor.
-      const foundAnchor = getBlockAnchorAt({
+      const foundAnchor = EditorUtils.getBlockAnchorAt({
         editor,
         position: editor.selection.start,
       });
@@ -146,15 +146,18 @@ export class CopyNoteLinkCommand
     return { link: `[[${fsPath}${anchor}]]`, anchor };
   }
 
-  private async createNoteLink(editor: TextEditor, note: NoteProps) {
+  private async createNoteLink(editor: TextEditor, note: NotePropsMeta) {
     const engine = this.extension.getEngine();
     const { selection } = VSCodeUtils.getSelection();
-    const { startAnchor: anchor } = await getSelectionAnchors({
+    const { startAnchor: anchor } = await EditorUtils.getSelectionAnchors({
       editor,
       selection,
       engine,
       doEndAnchor: false,
     });
+
+    const config = DConfig.readConfigSync(engine.wsRoot);
+    const aliasMode = ConfigUtils.getAliasMode(config);
 
     return {
       link: NoteUtils.createWikiLink({
@@ -166,7 +169,7 @@ export class CopyNoteLinkCommand
               type: isBlockAnchor(anchor) ? "blockAnchor" : "header",
             },
         useVaultPrefix: DendronClientUtilsV2.shouldUseVaultPrefix(engine),
-        alias: { mode: "title" },
+        alias: { mode: aliasMode },
       }),
       anchor,
     };
@@ -215,8 +218,8 @@ export class CopyNoteLinkCommand
       // Do nothing as engine may still not be up-to-date
       return;
     } else {
-      const note: NoteProps | undefined = (
-        await engine.findNotes({ fname, vault })
+      const note: NotePropsMeta | undefined = (
+        await engine.findNotesMeta({ fname, vault })
       )[0];
       return this.executeCopyNoteLink(note, editor);
     }
@@ -230,7 +233,7 @@ export class CopyNoteLinkCommand
   }
 
   private async executeCopyNoteLink(
-    note: NoteProps | undefined,
+    note: NotePropsMeta | undefined,
     editor: TextEditor
   ) {
     let link: string;

@@ -3,30 +3,41 @@ import {
   DNodeProps,
   DNodePropsQuickInputV2,
   DNodeUtils,
+  LabelUtils,
   NoteLookupUtils,
   NoteProps,
   NoteQuickInput,
+  CreateNewWithTemplateQuickPickLabelHighlightTestGroups,
   TransformedQueryString,
+  _2022_09_CREATE_NEW_WITH_TEMPLATE_QUICKPICK_LABEL_HIGHLIGHT_TEST,
 } from "@dendronhq/common-all";
-import { getDurationMilliseconds } from "@dendronhq/common-server";
-import { LinkUtils } from "@dendronhq/engine-server";
+import {
+  getDurationMilliseconds,
+  SegmentClient,
+} from "@dendronhq/common-server";
+import { LinkUtils } from "@dendronhq/unified";
 import _ from "lodash";
 import path from "path";
 import { ExtensionProvider } from "../../ExtensionProvider";
 import { Logger } from "../../logger";
 import { VSCodeUtils } from "../../vsCodeUtils";
-import { CREATE_NEW_NOTE_DETAIL, CREATE_NEW_LABEL } from "./constants";
+import {
+  CREATE_NEW_NOTE_DETAIL,
+  CREATE_NEW_LABEL,
+  CREATE_NEW_WITH_TEMPLATE_LABEL,
+  CREATE_NEW_NOTE_WITH_TEMPLATE_DETAIL,
+} from "./constants";
 import { DendronQuickPickerV2 } from "./types";
 import { filterPickerResults, PickerUtilsV2 } from "./utils";
 
 export const PAGINATE_LIMIT = 50;
 
 export class NotePickerUtils {
-  static createItemsFromSelectedWikilinks():
-    | DNodePropsQuickInputV2[]
-    | undefined {
+  static async createItemsFromSelectedWikilinks(): Promise<
+    DNodePropsQuickInputV2[] | undefined
+  > {
     const engine = ExtensionProvider.getEngine();
-    const { vaults, schemas, wsRoot } = engine;
+    const { vaults, wsRoot } = engine;
 
     // get selection
     const { text } = VSCodeUtils.getSelection();
@@ -38,23 +49,30 @@ export class NotePickerUtils {
     // dedupe wikilinks by value
     const uniqueWikiLinks = _.uniqBy(wikiLinks, "value");
 
-    const activeNote =
-      ExtensionProvider.getWSUtils().getActiveNote() as DNodeProps;
+    const activeNote = await ExtensionProvider.getWSUtils().getActiveNote();
+    if (!activeNote) {
+      return;
+    }
 
     // make a list of picker items from wikilinks
-    const notesFromWikiLinks = LinkUtils.getNotesFromWikiLinks({
+    const notesFromWikiLinks = await LinkUtils.getNotesFromWikiLinks({
       activeNote,
       wikiLinks: uniqueWikiLinks,
       engine,
     });
-    const pickerItemsFromSelection = notesFromWikiLinks.map(
-      (note: DNodeProps) =>
+    const pickerItemsFromSelection = await Promise.all(
+      notesFromWikiLinks.map(async (note: DNodeProps) =>
         DNodeUtils.enhancePropForQuickInputV3({
           props: note,
-          schemas,
+          schema: note.schema
+            ? (
+                await engine.getSchema(note.schema.moduleId)
+              ).data
+            : undefined,
           vaults,
           wsRoot,
         })
+      )
     );
     return pickerItemsFromSelection;
   }
@@ -81,6 +99,48 @@ export class NotePickerUtils {
     };
   }
 
+  static createNewWithTemplateItem({
+    fname,
+  }: {
+    fname: string;
+  }): DNodePropsQuickInputV2 {
+    const props = DNodeUtils.create({
+      id: CREATE_NEW_WITH_TEMPLATE_LABEL,
+      fname,
+      type: "note",
+      // @ts-ignore
+      vault: {},
+    });
+    const ABUserGroup =
+      _2022_09_CREATE_NEW_WITH_TEMPLATE_QUICKPICK_LABEL_HIGHLIGHT_TEST.getUserGroup(
+        SegmentClient.instance().anonymousId
+      );
+
+    let label: string;
+    if (
+      ABUserGroup ===
+      CreateNewWithTemplateQuickPickLabelHighlightTestGroups.label
+    ) {
+      label = LabelUtils.createLabelWithHighlight({
+        value: CREATE_NEW_WITH_TEMPLATE_LABEL,
+        highlight: {
+          value: "$(beaker) [New] ",
+          location: "prefix",
+          expirationDate: new Date("2022-11-01"),
+        },
+      });
+    } else {
+      label = CREATE_NEW_WITH_TEMPLATE_LABEL;
+    }
+
+    return {
+      ...props,
+      label,
+      detail: CREATE_NEW_NOTE_WITH_TEMPLATE_DETAIL,
+      alwaysShow: true,
+    };
+  }
+
   static getInitialValueFromOpenEditor() {
     const initialValue = path.basename(
       VSCodeUtils.getActiveTextEditor()?.document.uri.fsPath || "",
@@ -93,21 +153,25 @@ export class NotePickerUtils {
     return [...picker.selectedItems];
   }
 
-  static fetchRootQuickPickResults = ({
+  static fetchRootQuickPickResults = async ({
     engine,
   }: {
     engine: DEngineClient;
   }) => {
     const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-    const nodes = NoteLookupUtils.fetchRootResults(engine.notes);
-    return nodes.map((ent) => {
-      return DNodeUtils.enhancePropForQuickInput({
-        wsRoot,
-        props: ent,
-        schemas: engine.schemas,
-        vaults,
-      });
-    });
+    const nodes = await NoteLookupUtils.fetchRootResultsFromEngine(engine);
+    return Promise.all(
+      nodes.map(async (ent) => {
+        return DNodeUtils.enhancePropForQuickInput({
+          wsRoot,
+          props: ent,
+          schema: ent.schema
+            ? (await engine.getSchema(ent.schema.moduleId)).data
+            : undefined,
+          vaults,
+        });
+      })
+    );
   };
 
   /**
@@ -129,7 +193,7 @@ export class NotePickerUtils {
       const note = resp[0];
       const isPerfectMatch = note.fname === picker.value;
       if (isPerfectMatch) {
-        return [this.enhanceNoteForQuickInput({ note, engine })];
+        return [await this.enhanceNoteForQuickInput({ note, engine })];
       }
     }
     return [
@@ -140,7 +204,7 @@ export class NotePickerUtils {
     ];
   }
 
-  private static enhanceNoteForQuickInput(input: {
+  private static async enhanceNoteForQuickInput(input: {
     note: NoteProps;
     engine: DEngineClient;
   }) {
@@ -148,7 +212,9 @@ export class NotePickerUtils {
     return DNodeUtils.enhancePropForQuickInputV3({
       wsRoot,
       props: input.note,
-      schemas: input.engine.schemas,
+      schema: input.note.schema
+        ? (await input.engine.getSchema(input.note.schema.moduleId)).data
+        : undefined,
       vaults,
     });
   }
@@ -170,7 +236,11 @@ export class NotePickerUtils {
       onlyDirectChildren: transformedQuery.onlyDirectChildren,
       originalQS,
     });
-    let nodes: NoteProps[] = resp.data;
+    let nodes = resp.data;
+
+    if (!nodes) {
+      return [];
+    }
 
     // We need to filter our results to abide by different variations of our
     // transformed query. We should do filtering prior to doing pagination cut off.
@@ -190,7 +260,11 @@ export class NotePickerUtils {
         DNodeUtils.enhancePropForQuickInputV3({
           wsRoot,
           props: ent,
-          schemas: engine.schemas,
+          schema: ent.schema
+            ? (
+                await engine.getSchema(ent.schema.moduleId)
+              ).data
+            : undefined,
           vaults,
           alwaysShow: picker.alwaysShowAll,
         })

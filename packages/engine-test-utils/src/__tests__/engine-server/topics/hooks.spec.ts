@@ -50,8 +50,8 @@ const writeNote = async ({
   engine: DEngineClient;
 }) => {
   const note = NoteUtils.create(noteOpts);
-  await engine.writeNote(note, { newNode: true });
-  const out = engine.notes[note.id];
+  await engine.writeNote(note);
+  const out = (await engine.getNote(note.id)).data!;
   return { note: out };
 };
 
@@ -86,8 +86,8 @@ describe("engine", () => {
         body: "hooked body",
         vault,
       });
-      await engine.writeNote(note, { newNode: true });
-      const ent = engine.notes["hooked"];
+      await engine.writeNote(note);
+      const ent = (await engine.getNote("hooked")).data!;
       expect(
         await AssertUtils.assertInString({
           body: ent.body,
@@ -129,8 +129,8 @@ describe("engine", () => {
         body: "hooked body",
         vault,
       });
-      await engine.writeNote(note, { newNode: true });
-      const ent = engine.notes["hooked"];
+      await engine.writeNote(note);
+      const ent = (await engine.getNote("hooked")).data!;
       expect(
         await AssertUtils.assertInString({
           body: ent.body,
@@ -178,8 +178,8 @@ describe("engine", () => {
         body: "hooked body",
         vault,
       });
-      await engine.writeNote(note, { newNode: true });
-      const ent = engine.notes["hooked"];
+      await engine.writeNote(note);
+      const ent = (await engine.getNote("hooked")).data!;
       expect(
         await AssertUtils.assertInString({
           body: ent.body,
@@ -224,8 +224,8 @@ describe("engine", () => {
         body: "hooked body",
         vault,
       });
-      await engine.writeNote(note, { newNode: true });
-      const ent = engine.notes["hooked"];
+      await engine.writeNote(note);
+      const ent = (await engine.getNote("hooked")).data!;
       expect(
         await AssertUtils.assertInString({
           body: ent.body,
@@ -326,8 +326,8 @@ describe("engine", () => {
           body: "hooked body",
           vault,
         });
-        await engine.writeNote(note, { newNode: true, runHooks: false });
-        const ent = engine.notes["hooked"];
+        await engine.writeNote(note, { runHooks: false });
+        const ent = (await engine.getNote("hooked")).data!;
         expect(
           await AssertUtils.assertInString({
             body: ent.body,
@@ -407,7 +407,7 @@ describe("remote engine", () => {
           body: "hooked body",
           vault,
         });
-        const resp = await engine.writeNote(note, { newNode: true });
+        const resp = await engine.writeNote(note);
         expect(
           resp.error!.message.startsWith("NoteProps is undefined")
         ).toBeTruthy();

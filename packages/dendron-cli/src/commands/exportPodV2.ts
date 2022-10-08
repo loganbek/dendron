@@ -22,6 +22,7 @@ import {
   NotionUtils,
   PodExportScope,
   PodV2Types,
+  RunnableGoogleDocsV2PodConfig,
 } from "@dendronhq/pods-core";
 import yargs from "yargs";
 import { CLICommand, CommandCommonProps } from "./base";
@@ -31,6 +32,7 @@ import Airtable from "@dendronhq/airtable";
 import _ from "lodash";
 import { EngineUtils, openPortFile } from "@dendronhq/engine-server";
 import clipboard from "clipboardy";
+import { DConfig } from "@dendronhq/common-server";
 
 export { CommandCLIOpts as ExportPodV2CLIOpts };
 
@@ -76,7 +78,7 @@ export class ExportPodV2CLICommand extends CLICommand<
         return new MarkdownExportPodV2({
           podConfig: config,
           engine,
-          dendronConfig: engine.config,
+          dendronConfig: DConfig.readConfigSync(engine.wsRoot),
         });
       case PodV2Types.JSONExportV2:
         return new JSONExportPodV2({
@@ -162,7 +164,11 @@ export class ExportPodV2CLICommand extends CLICommand<
           config,
         });
       case PodV2Types.GoogleDocsExportV2:
-        return this.onGoogleDocsExportComplete({ exportReturnValue, engine });
+        return this.onGoogleDocsExportComplete({
+          exportReturnValue,
+          engine,
+          config,
+        });
       case PodV2Types.NotionExportV2:
         return this.onNotionExportComplete({ exportReturnValue, engine });
       case PodV2Types.MarkdownExportV2:
@@ -208,8 +214,9 @@ export class ExportPodV2CLICommand extends CLICommand<
   async onGoogleDocsExportComplete(opts: {
     exportReturnValue: GoogleDocsExportReturnType;
     engine: DEngineClient;
+    config: RunnableGoogleDocsV2PodConfig;
   }) {
-    const { exportReturnValue, engine } = opts;
+    const { exportReturnValue, engine, config } = opts;
     const createdDocs = exportReturnValue.data?.created?.filter((ent) => !!ent);
     const updatedDocs = exportReturnValue.data?.updated?.filter((ent) => !!ent);
     const createdCount = createdDocs?.length ?? 0;
@@ -217,13 +224,15 @@ export class ExportPodV2CLICommand extends CLICommand<
     if (createdDocs && createdCount > 0) {
       await GoogleDocsUtils.updateNotesWithCustomFrontmatter(
         createdDocs,
-        engine
+        engine,
+        config.parentFolderId
       );
     }
     if (updatedDocs && updatedCount > 0) {
       await GoogleDocsUtils.updateNotesWithCustomFrontmatter(
         updatedDocs,
-        engine
+        engine,
+        config.parentFolderId
       );
     }
     if (ResponseUtil.hasError(exportReturnValue)) {
@@ -310,7 +319,8 @@ export class ExportPodV2CLICommand extends CLICommand<
   }) {
     if (
       opts.destination === "clipboard" &&
-      opts.exportScope !== PodExportScope.Note
+      opts.exportScope !== PodExportScope.Note &&
+      opts.exportScope !== PodExportScope.Selection
     ) {
       throw new DendronError({
         message:

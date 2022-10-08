@@ -1,4 +1,4 @@
-import { vault2Path } from "@dendronhq/common-server";
+import { DConfig, vault2Path } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
@@ -10,8 +10,7 @@ import { expect } from "../testUtilsv2";
 import { describeMultiWS, describeSingleWS } from "../testUtilsV3";
 import { test, before } from "mocha";
 import { ExtensionProvider } from "../../ExtensionProvider";
-import { NoteUtils, VaultUtils } from "@dendronhq/common-all";
-import { DConfig } from "@dendronhq/engine-server";
+import { VaultUtils } from "@dendronhq/common-all";
 import { MessageItem, window } from "vscode";
 import sinon from "sinon";
 import { VSCodeUtils } from "../../vsCodeUtils";
@@ -179,19 +178,17 @@ suite("GIVEN ReloadIndex", function () {
     before(async () => {
       const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
       const vaultPath = vault2Path({ vault: vaults[0], wsRoot });
-      await fs.rmdir(vaultPath, { recursive: true });
+      await fs.rm(vaultPath, { recursive: true, maxRetries: 2 });
     });
 
     test("THEN other vaults are still loaded", async () => {
       const engine = await new ReloadIndexCommand().run();
       const { vaults } = ExtensionProvider.getDWorkspace();
       expect(engine).toBeTruthy();
-      const notes = _.sortBy(
-        NoteUtils.getNotesByFnameFromEngine({
-          engine: engine!,
-          fname: "root",
-        }),
-        (note) => path.basename(note.vault.fsPath)
+      const allNotes = await engine?.findNotesMeta({ fname: "root" });
+
+      const notes = _.sortBy(allNotes, (note) =>
+        path.basename(note.vault.fsPath)
       );
       expect(notes.length).toEqual(2);
       expect(VaultUtils.isEqualV2(notes[0].vault, vaults[1])).toBeTruthy();

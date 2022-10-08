@@ -10,10 +10,10 @@ import {
   VSCodeEvents,
   WorkspaceSettings,
   WorkspaceType,
+  BacklinkPanelSortOrder,
 } from "@dendronhq/common-all";
 import { resolvePath } from "@dendronhq/common-server";
 import {
-  BacklinkPanelSortOrder,
   HistoryService,
   WorkspaceService,
   WorkspaceUtils,
@@ -111,7 +111,8 @@ export function getEngine() {
 }
 
 export function resolveRelToWSRoot(fpath: string): string {
-  return resolvePath(fpath, getDWorkspace().wsRoot as string);
+  const { wsRoot } = ExtensionProvider.getDWorkspace();
+  return resolvePath(fpath, wsRoot);
 }
 
 /** Given file uri that is within a vault within the current workspace returns the vault. */
@@ -689,6 +690,42 @@ export class DendronExtension implements IDendronExtension {
         graphPanel.decreaseGraphDepth();
       })
     );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_BACKLINKS_CHECKED.key,
+      sentryReportingCallback(() => {
+        graphPanel.showBacklinks = false;
+      })
+    );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_BACKLINKS.key,
+      sentryReportingCallback(() => {
+        graphPanel.showBacklinks = true;
+      })
+    );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_OUTWARD_LINKS_CHECKED.key,
+      sentryReportingCallback(() => {
+        graphPanel.showOutwardLinks = false;
+      })
+    );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_OUTWARD_LINKS.key,
+      sentryReportingCallback(() => {
+        graphPanel.showOutwardLinks = true;
+      })
+    );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_HIERARCHY_CHECKED.key,
+      sentryReportingCallback(() => {
+        graphPanel.showHierarchy = false;
+      })
+    );
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.GRAPH_PANEL_SHOW_HIERARCHY.key,
+      sentryReportingCallback(() => {
+        graphPanel.showHierarchy = true;
+      })
+    );
     return vscode.window.registerWebviewViewProvider(
       GraphPanel.viewType,
       graphPanel
@@ -709,7 +746,7 @@ export class DendronExtension implements IDendronExtension {
     const ctx = "activateWorkspace";
     const stage = getStage();
     this.L.info({ ctx, stage, msg: "enter" });
-    const { wsRoot } = getDWorkspace();
+    const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
     if (!wsRoot) {
       throw new Error(`rootDir not set when activating Watcher`);
     }
@@ -733,21 +770,19 @@ export class DendronExtension implements IDendronExtension {
 
     const wsFolders = DendronExtension.workspaceFolders();
     if (_.isUndefined(wsFolders) || _.isEmpty(wsFolders)) {
-      this.L.error({
+      this.L.info({
         ctx,
         msg: "no folders set for workspace",
       });
-      throw Error("no folders set for workspace");
     }
-    const realVaults = getDWorkspace().vaults;
     const fileWatcher = new FileWatcher({
       workspaceOpts: {
         wsRoot,
-        vaults: realVaults,
+        vaults,
       },
     });
 
-    fileWatcher.activate(getExtension().context);
+    fileWatcher.activate(ExtensionProvider.getExtension().context);
     this.fileWatcher = fileWatcher;
   }
 

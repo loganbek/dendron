@@ -12,7 +12,6 @@ import {
 } from "@dendronhq/common-frontend";
 import { Col, Row } from "antd";
 import _ from "lodash";
-import dynamic from "next/dynamic";
 import React from "react";
 import { DendronCollectionItem } from "../components/DendronCollection";
 import DendronCustomHead from "../components/DendronCustomHead";
@@ -23,6 +22,8 @@ import { useCombinedDispatch } from "../features";
 import { browserEngineSlice } from "../features/engine";
 import { DENDRON_STYLE_CONSTANTS } from "../styles/constants";
 import { useDendronRouter } from "../utils/hooks";
+import { MermaidScript } from "./MermaidScript";
+import { DendronNoteGiscusWidget } from "./DendronNoteGiscusWidget";
 
 const { HEADER } = DENDRON_STYLE_CONSTANTS;
 
@@ -103,13 +104,18 @@ export default function Note({
 
   const maybeCollection =
     note.custom?.has_collection && !_.isNull(collectionChildren)
-      ? collectionChildren.map((child: NoteProps) =>
-          DendronCollectionItem({ note: child, noteIndex })
-        )
+      ? collectionChildren.map((child: NoteProps) => (
+          <DendronCollectionItem
+            key={child.id}
+            note={child}
+            noteIndex={noteIndex}
+          />
+        ))
       : null;
 
   return (
     <>
+      <MermaidScript noteBody={noteBody} />
       <DendronSEO note={note} config={config} />
       {customHeadContent && <DendronCustomHead content={customHeadContent} />}
       <Row>
@@ -117,8 +123,9 @@ export default function Note({
           <Row gutter={20}>
             <Col xs={24} md={18}>
               {BannerAlert && <BannerAlert />}
-              <DendronNote noteContent={noteBody} config={config} />
+              <DendronNote noteContent={noteBody} />
               {maybeCollection}
+              <DendronNoteGiscusWidget note={note} config={config} />
             </Col>
             <Col xs={0} md={6}>
               <DendronTOC note={note} offsetTop={HEADER.HEIGHT} />

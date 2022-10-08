@@ -10,7 +10,7 @@ import { BasicCommand } from "./base";
 import { VSCodeUtils, MessageSeverity } from "../vsCodeUtils";
 import { IDendronExtension } from "../dendronExtensionInterface";
 import { QuickPickItem } from "vscode";
-import { getLinkFromSelectionWithWorkspace } from "../utils/editor";
+import { EditorUtils } from "../utils/EditorUtils";
 import { delayedUpdateDecorations } from "../features/windowDecorations";
 
 type CommandInput = {
@@ -37,12 +37,12 @@ export class TaskStatusCommand extends BasicCommand<
   }
 
   async gatherInputs(opts?: CommandInput): Promise<CommandOpts | undefined> {
-    const selection = await getLinkFromSelectionWithWorkspace();
+    const selection = await EditorUtils.getLinkFromSelectionWithWorkspace();
     let selectedNote: NoteProps | undefined;
 
     if (!selection) {
       // Then they are changing the status for the current note
-      selectedNote = this._ext.wsUtils.getActiveNote();
+      selectedNote = await this._ext.wsUtils.getActiveNote();
       if (!selectedNote || !TaskNoteUtils.isTaskNote(selectedNote)) {
         // No active note either
         VSCodeUtils.showMessage(
@@ -155,7 +155,7 @@ export class TaskStatusCommand extends BasicCommand<
       status: opts.setStatus,
     };
 
-    await this._ext.getEngine().writeNote(opts.note, { updateExisting: true });
+    await this._ext.getEngine().writeNote(opts.note);
 
     delayedUpdateDecorations();
 

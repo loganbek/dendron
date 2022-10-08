@@ -12,15 +12,15 @@ commands:
       bubbleUpCreateNew: true
       vaultSelectionModeOnCreate: smart
       fuzzThreshold: 0.2
-  insertNote:
-    initialValue: templates
   insertNoteLink:
     aliasMode: none
     enableMultiSelect: false
   insertNoteIndex:
     enableMarker: false
   randomNote: {}
-  copyNoteLink: {}
+  copyNoteLink:
+    aliasMode: title
+  templateHierarchy: template
 workspace:
   dendronVersion: 0.83.0
   vaults:
@@ -29,7 +29,7 @@ workspace:
       name: vault3
     - fsPath: vault2
       visibility: private
-      siteUrl: "https://vault2.com"
+      siteUrl: https://vault2.com
     - fsPath: vault
     - fsPath: assets
   journal:
@@ -71,15 +71,16 @@ workspace:
       L: low
     todoIntegration: false
     createTaskSelectionType: selection2link
-    taskCompleteStatus: ["x", "done"]
+    taskCompleteStatus:
+      - x
+      - done
   enableUserTags: true
   enableHashTags: true
   enableEditorDecorations: true
-  enableHandlebarTemplates: true
+  enableFullHierarchyNoteTitle: false
 preview:
   enableFMTitle: true
   enableNoteTitleForLink: true
-  enableMermaid: true
   enablePrettyRefs: true
   enableKatex: true
   automaticallyShowPreview: false
@@ -87,7 +88,7 @@ preview:
   enableHashesForFMTags: false
 publishing:
   enableHierarchyDisplay: false
-  hierarchyDisplayTitle: "Sub Notes"
+  hierarchyDisplayTitle: Sub Notes
   theme: light
   enableFMTitle: true
   enableNoteTitleForLink: true
@@ -105,7 +106,6 @@ publishing:
     - task
   enableSiteLastModified: true
   siteRootDir: docs
-  siteUrl: https://foo.dev.dendron.so
   enableFrontmatterTags: true
   enableHashesForFMTags: false
   enableRandomlyColoredTags: true
@@ -134,6 +134,5 @@ publishing:
     editBranch: main
     editViewMode: edit
     editRepository: https://github.com/kevinslin/dendron-11ty-test
-  enableContainers: false
-  generateChangelog: false
   enablePrettyLinks: true
+  enableTaskNotes: true

@@ -85,6 +85,12 @@ export enum ERROR_STATUS {
   INVALID_STATE = "invalid_state",
   // --- 500
   UNKNOWN = "unknown",
+
+  // storage layer errors
+  CONTENT_NOT_FOUND = "content_not_found",
+  WRITE_FAILED = "write_failed",
+  DELETE_FAILED = "delete_failed",
+  RENAME_FAILED = "rename_failed",
 }
 
 export enum USER_MESSAGES {
@@ -122,4 +128,12 @@ export enum DENDRON_EMOJIS {
 
 export enum DENDRON_VSCODE_CONFIG_KEYS {
   ENABLE_SELF_CONTAINED_VAULTS_WORKSPACE = "dendron.enableSelfContainedVaultWorkspace",
+}
+
+/**
+ * Keys to a global state store. Global here means across a single user's
+ * different access platforms.
+ */
+export enum GLOBAL_STATE_KEYS {
+  ANONYMOUS_ID = "telemetry.anonymousId",
 }

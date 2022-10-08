@@ -1,6 +1,6 @@
 import { WorkspaceType } from "@dendronhq/common-all";
 import { ENGINE_HOOKS } from "@dendronhq/engine-test-utils";
-import { getDWorkspace } from "../../workspace";
+import { ExtensionProvider } from "../../ExtensionProvider";
 import { expect } from "../testUtilsv2";
 import {
   describeMultiWS,
@@ -21,15 +21,14 @@ runSuiteButSkipForWindows()(
         workspaceType: WorkspaceType.NATIVE,
       },
       () => {
-        test("THEN initializes correctly", (done) => {
-          const { engine } = getDWorkspace();
-          const testNote = engine.notes["foo"];
+        test("THEN initializes correctly", async () => {
+          const { engine } = ExtensionProvider.getDWorkspace();
+          const testNote = (await engine.getNoteMeta("foo")).data!;
           expect(testNote).toBeTruthy();
-          done();
         });
 
         test("THEN is of NATIVE type", (done) => {
-          const { type } = getDWorkspace();
+          const { type } = ExtensionProvider.getDWorkspace();
           expect(type).toEqual(WorkspaceType.NATIVE);
           done();
         });
@@ -44,15 +43,14 @@ runSuiteButSkipForWindows()(
         workspaceType: WorkspaceType.CODE,
       },
       () => {
-        test("THEN initializes correctly", (done) => {
-          const { engine } = getDWorkspace();
-          const testNote = engine.notes["foo"];
+        test("THEN initializes correctly", async () => {
+          const { engine } = ExtensionProvider.getDWorkspace();
+          const testNote = (await engine.getNoteMeta("foo")).data!;
           expect(testNote).toBeTruthy();
-          done();
         });
 
         test("THEN is of CODE type", (done) => {
-          const { type } = getDWorkspace();
+          const { type } = ExtensionProvider.getDWorkspace();
           expect(type).toEqual(WorkspaceType.CODE);
           done();
         });
@@ -66,15 +64,14 @@ runSuiteButSkipForWindows()(
         ctx,
       },
       () => {
-        test("THEN initializes correctly", (done) => {
-          const { engine } = getDWorkspace();
-          const testNote = engine.notes["foo"];
+        test("THEN initializes correctly", async () => {
+          const { engine } = ExtensionProvider.getDWorkspace();
+          const testNote = (await engine.getNoteMeta("foo")).data!;
           expect(testNote).toBeTruthy();
-          done();
         });
 
         test("THEN is of CODE type", (done) => {
-          const { type } = getDWorkspace();
+          const { type } = ExtensionProvider.getDWorkspace();
           expect(type).toEqual(WorkspaceType.CODE);
           done();
         });

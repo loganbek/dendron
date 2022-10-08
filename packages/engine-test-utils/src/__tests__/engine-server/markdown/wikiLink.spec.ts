@@ -1,3 +1,4 @@
+import { DConfig } from "@dendronhq/common-server";
 import {
   NoteTestUtilsV4,
   TestPresetEntryV4,
@@ -9,9 +10,8 @@ import {
   RemarkUtils,
   UnistNode,
   WikiLinkNoteV4,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
-import path from "path";
 import { runEngineTestV5 } from "../../../engine";
 import { ENGINE_HOOKS } from "../../../presets";
 import { checkVFile, createProcForTest, createProcTests } from "./utils";
@@ -50,6 +50,15 @@ describe("wikiLinks", () => {
       expect(_.pick(getWikiLink(resp), ["type", "value"])).toEqual({
         type: DendronASTTypes.WIKI_LINK,
         value: "foo bar",
+      });
+    });
+
+    test("cross vault wikilink with spaces", () => {
+      const resp = proc().parse(`[[foo | dendron://vault1/foo]]`);
+      expect(getWikiLink(resp)).toMatchSnapshot();
+      expect(_.pick(getWikiLink(resp), ["type", "value"])).toEqual({
+        type: DendronASTTypes.WIKI_LINK,
+        value: "foo",
       });
     });
 
@@ -95,11 +104,13 @@ describe("wikiLinks", () => {
 
     const REGULAR_CASE = createProcTests({
       name: "regular",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc2.process(linkRegular);
         return { resp, proc };
@@ -117,10 +128,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo">Foo</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -128,11 +135,13 @@ describe("wikiLinks", () => {
     const linkWithAnchor = "[[foo#one]]";
     const WITH_ANCHOR = createProcTests({
       name: "WITH_ANCHOR",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc2.process(linkWithAnchor);
         return { resp, proc };
@@ -150,10 +159,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo#one">Foo</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -161,11 +166,13 @@ describe("wikiLinks", () => {
     const linkWithBlockAnchor = "[[foo#^block]]";
     const WITH_BLOCK_ANCHOR = createProcTests({
       name: "WITH_BLOCK_ANCHOR",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc2.process(linkWithBlockAnchor);
         return { resp, proc };
@@ -183,21 +190,22 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo#^block">Foo</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
 
     const WITH_SAME_FILE_BLOCK_ANCHOR = createProcTests({
       name: "WITH_SAME_FILE_BLOCK_ANCHOR",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByNoteProps: await engine.findNotes({
+            fname: "root",
+            vault: vaults[0],
+          }),
         });
         const resp = await proc2.process("[[#^block]]");
         return { resp, proc };
@@ -213,11 +221,7 @@ describe("wikiLinks", () => {
         },
         [DendronASTDest.HTML]: async ({ extra }) => {
           const { resp } = extra;
-          await checkVFile(resp, '<a href="root#^block">Root</a>');
-        },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Root](root.md)");
+          await checkVFile(resp, '<a href="/">Root</a>');
         },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
@@ -226,11 +230,13 @@ describe("wikiLinks", () => {
     const linkWithExtension = "[[foo.md]]";
     const WITH_EXTENSION = createProcTests({
       name: "WITH_EXTENSION",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkWithExtension);
         return { resp, proc };
@@ -248,10 +254,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo">Foo</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -259,11 +261,13 @@ describe("wikiLinks", () => {
     const linkWithAlias = `[[bar doesn't foo|foo]]`;
     const WITH_ALIAS = createProcTests({
       name: "WITH_ALIAS",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkWithAlias);
         return { resp, proc };
@@ -281,10 +285,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, `<a href="foo">bar doesn't foo</a>`);
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[bar doesn't foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -292,11 +292,13 @@ describe("wikiLinks", () => {
     const linkWithAliasHash = `[[#bar|foo]]`;
     const WITH_ALIAS_HASH = createProcTests({
       name: "WITH_ALIAS_HASH",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkWithAliasHash);
         return { resp, proc };
@@ -314,10 +316,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo">#bar</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[#bar](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -325,11 +323,12 @@ describe("wikiLinks", () => {
     const linkWithAliasApostrophe = `[[Coulomb's Constant|kb.note.20211011124050]]`;
     const WITH_ALIAS_APOSTROPHE = createProcTests({
       name: "WITH_ALIAS_APOSTROPHE",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc.process(linkWithAliasApostrophe);
         return { resp, proc };
@@ -353,25 +352,20 @@ describe("wikiLinks", () => {
             '<a href="kb.note.20211011124050">Coulomb\'s Constant</a>'
           );
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(
-            resp,
-            "[Coulomb's Constant](kb.note.20211011124050.md)"
-          );
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
 
     const WITH_ID_AS_LINK = createProcTests({
       name: "WITH_ID_AS_LINK",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
           useIdAsLink: true,
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkRegular);
         return { resp, proc };
@@ -399,11 +393,12 @@ describe("wikiLinks", () => {
     const linkWithSpaceAndAlias = `[[bar|foo bar]]`;
     const WITH_SPACE_AND_ALIAS = createProcTests({
       name: "WITH_SPACE_AND_ALIAS",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc.process(linkWithSpaceAndAlias);
         return { resp, proc };
@@ -417,10 +412,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, "[bar](foo%20bar)");
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[bar](foo%20bar.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -428,11 +419,13 @@ describe("wikiLinks", () => {
     const linkFromSameVaultWithAlias = "[[bar|dendron://vault1/foo]]";
     const WITH_XVAULT_LINK_TO_SAME_VAULT_AND_ALIAS = createProcTests({
       name: "WITH_XVAULT_LINK_TO_SAME_VAULT_AND_ALIAS",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkFromSameVaultWithAlias);
         return { resp, proc };
@@ -450,10 +443,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo">bar</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[bar](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -461,11 +450,13 @@ describe("wikiLinks", () => {
     const linkFromSameVault = "[[dendron://vault1/foo]]";
     const WITH_XVAULT_LINK_TO_SAME_VAULT = createProcTests({
       name: "WITH_XVAULT_LINK_TO_SAME_VAULT",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkFromSameVault);
         return { resp, proc };
@@ -483,10 +474,6 @@ describe("wikiLinks", () => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo">Foo</a>');
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          await checkVFile(resp, "[Foo](foo.md)");
-        },
       },
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
@@ -494,12 +481,14 @@ describe("wikiLinks", () => {
     const linkFromOtherVault = "[[dendron://vault2/foo]]";
     const WITH_XVAULT_LINK_TO_OTHER_VAULT = createProcTests({
       name: "WITH_XVAULT_LINK_TO_OTHER_VAULT",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
           useIdAsLink: true,
+          config: DConfig.readConfigSync(wsRoot),
+          parsingDependenciesByFname: ["foo"],
         });
         const resp = await proc.process(linkFromOtherVault);
         return { resp, proc };
@@ -516,11 +505,6 @@ describe("wikiLinks", () => {
         [DendronASTDest.HTML]: async ({ extra }) => {
           const { resp } = extra;
           await checkVFile(resp, '<a href="foo-2">Foo</a>');
-        },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          const expectedPath = path.join("..", "vault2", "foo.md");
-          await checkVFile(resp, `[Foo](${expectedPath})`);
         },
       },
       preSetupHook: async ({ wsRoot, vaults }) => {

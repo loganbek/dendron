@@ -5,7 +5,7 @@ import {
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { findNonNoteFile } from "@dendronhq/common-server";
+import { DConfig, findNonNoteFile } from "@dendronhq/common-server";
 import * as Sentry from "@sentry/node";
 import vscode, { Location, Position, Uri } from "vscode";
 import { findAnchorPos, GotoNoteCommand } from "../commands/GotoNote";
@@ -39,7 +39,7 @@ export default class DefinitionProvider implements vscode.DefinitionProvider {
     refAtPos: NonNullable<Awaited<ReturnType<typeof getReferenceAtPosition>>>
   ) {
     const wsRoot = ExtensionProvider.getDWorkspace().wsRoot;
-    const config = ExtensionProvider.getEngine().config;
+    const config = DConfig.readConfigSync(wsRoot);
     const noAutoCreateOnDefinition =
       !ConfigUtils.getWorkspace(config).enableAutoCreateOnDefinition;
     if (noAutoCreateOnDefinition) {
@@ -57,7 +57,7 @@ export default class DefinitionProvider implements vscode.DefinitionProvider {
     }
     const { note, pos } = out;
     return new Location(
-      Uri.file(NoteUtils.getFullPath({ note, wsRoot })),
+      NoteUtils.getURI({ note, wsRoot }),
       pos || new Position(0, 0)
     );
   }
@@ -96,14 +96,10 @@ export default class DefinitionProvider implements vscode.DefinitionProvider {
           Logger.error({ msg: `${refAtPos.vaultName} is not defined` });
         }
       }
-      const notes = NoteUtils.getNotesByFnameFromEngine({
-        fname: refAtPos.ref,
-        engine,
-        vault,
-      });
-      const uris = notes.map((note) =>
-        Uri.file(NoteUtils.getFullPath({ note, wsRoot }))
-      );
+      const notes = (
+        await engine.findNotesMeta({ fname: refAtPos.ref, vault })
+      ).filter((note) => !note.id.startsWith(NoteUtils.FAKE_ID_PREFIX));
+      const uris = notes.map((note) => NoteUtils.getURI({ note, wsRoot }));
       const out = uris.map((uri) => new Location(uri, new Position(0, 0)));
       if (out.length > 1) {
         return out;

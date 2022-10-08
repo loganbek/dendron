@@ -3,7 +3,8 @@ import path from "path";
 import { FOLDERS, normalizeUnixPath } from ".";
 import { CONSTANTS } from "./constants";
 import { DendronError } from "./error";
-import { DVault, WorkspaceFolderRaw } from "./types";
+import { WorkspaceFolderRaw } from "./types";
+import { DVault } from "./types/DVault";
 import { NonOptional } from "./utils";
 
 export type SelfContainedVault = Omit<DVault, "selfContained"> & {
@@ -147,9 +148,10 @@ export class VaultUtils {
     const normPath = this.normPathByWsRoot({
       wsRoot,
       fsPath,
-    });
+    }).trim();
+    const unixPath = normalizeUnixPath(normPath);
     const vault = _.find(vaults, (ent) => {
-      return normPath.trim() === VaultUtils.getRelPath(ent).trim();
+      return unixPath === normalizeUnixPath(VaultUtils.getRelPath(ent).trim());
     });
     if (!vault) {
       throw new DendronError({

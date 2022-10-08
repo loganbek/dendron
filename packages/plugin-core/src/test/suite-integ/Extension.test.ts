@@ -5,9 +5,8 @@ import {
   Time,
 } from "@dendronhq/common-all";
 import {
-  DConfig,
   DEPRECATED_PATHS,
-  LocalConfigScope,
+  execa,
   MetadataService,
 } from "@dendronhq/engine-server";
 import { VAULTS } from "@dendronhq/engine-test-utils";
@@ -18,7 +17,10 @@ import sinon from "sinon";
 import { ExtensionProvider } from "../../ExtensionProvider";
 import { StartupUtils } from "../../utils/StartupUtils";
 import { expect } from "../testUtilsv2";
-import { describeMultiWS } from "../testUtilsV3";
+import { describeMultiWS, describeSingleWS } from "../testUtilsV3";
+import { DConfig, LocalConfigScope } from "@dendronhq/common-server";
+import * as vscode from "vscode";
+import os from "os";
 
 async function inactiveMessageTest(opts: {
   done: mocha.Done;
@@ -446,4 +448,64 @@ suite("duplicate config entry detection", () => {
       expect(out).toEqual(undefined);
     });
   });
+});
+
+suite("localhost blocked on user's machine", () => {
+  describeSingleWS(
+    "GIVEN localhost is blocked on user's machine",
+    { timeout: 5e3 },
+    () => {
+      test("THEN warning toaster with mitigation docs link is displayed", async () => {
+        sinon.stub(execa, "command").resolves({
+          failed: true,
+          stderr: Buffer.from("error"),
+          stdout: Buffer.from(""),
+          isCanceled: false,
+          command: "ping",
+          exitCode: 0,
+          timedOut: false,
+          killed: false,
+        });
+        const warningToaster = sinon
+          .stub(vscode.window, "showWarningMessage")
+          .resolves(undefined);
+        await StartupUtils.showWhitelistingLocalhostDocsIfNecessary();
+        expect(warningToaster.callCount).toEqual(1);
+        expect(warningToaster.args[0][0]).toEqual(
+          "Dendron is facing issues while connecting with localhost. Please ensure that you don't have anything running that can block localhost."
+        );
+        expect(warningToaster.args[0][1]).toEqual("Open troubleshooting docs");
+      });
+    }
+  );
+  describeMultiWS(
+    "GIVEN localhost is not blocked user's machine",
+    { timeout: 5e3 },
+    () => {
+      test("THEN dendron inits", async () => {
+        const pingArgs =
+          os.platform() === "win32"
+            ? "ping -n 1 127.0.0.1"
+            : "ping -c 1 127.0.0.1";
+        sinon
+          .stub(execa, "command")
+          .withArgs(pingArgs)
+          .resolves({
+            failed: false,
+            stderr: Buffer.from(""),
+            stdout: Buffer.from(""),
+            isCanceled: false,
+            command: "ping",
+            exitCode: 0,
+            timedOut: false,
+            killed: false,
+          });
+        const warningToaster = sinon
+          .stub(vscode.window, "showWarningMessage")
+          .resolves(undefined);
+        await StartupUtils.showWhitelistingLocalhostDocsIfNecessary();
+        expect(warningToaster.callCount).toEqual(0);
+      });
+    }
+  );
 });

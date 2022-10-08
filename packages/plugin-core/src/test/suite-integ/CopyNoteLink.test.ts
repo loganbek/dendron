@@ -1,4 +1,9 @@
-import { ConfigUtils, NoteProps, VaultUtils } from "@dendronhq/common-all";
+import {
+  ConfigUtils,
+  NoteProps,
+  NoteUtils,
+  VaultUtils,
+} from "@dendronhq/common-all";
 import { vault2Path } from "@dendronhq/common-server";
 import {
   AssertUtils,
@@ -50,8 +55,11 @@ suite("CopyNoteLink", function () {
       });
 
       test("WHEN the editor is on a dirty file, THEN CopyNoteLink should return undefined and cause an onDidSaveTextDocument to be fired", (done) => {
-        const engine = ExtensionProvider.getEngine();
-        const testNote = engine.notes["foo"];
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        const testNote = NoteUtils.create({
+          fname: "foo",
+          vault: vaults[0],
+        });
         // onEngineNoteStateChanged is not being triggered by save so test to make sure that save is being triggered instead
         const disposable = vscode.workspace.onDidSaveTextDocument(
           (textDocument) => {
@@ -138,7 +146,7 @@ suite("CopyNoteLink", function () {
           engine,
         });
 
-        const editor = await openNote(noteWithTarget);
+        let editor = await openNote(noteWithTarget);
         const pos = LocationTestUtils.getPresetWikiLinkPosition();
         const pos2 = LocationTestUtils.getPresetWikiLinkPosition({
           char: 12,
@@ -146,6 +154,8 @@ suite("CopyNoteLink", function () {
         editor.selection = new vscode.Selection(pos, pos2);
         const link = (await copyNoteLinkCommand.run())?.link;
         expect(link).toEqual(`[[H1|${noteWithTarget.fname}#h1]]`);
+
+        editor = await openNote(noteWithTarget);
         editor.selection = new vscode.Selection(
           LocationTestUtils.getPresetWikiLinkPosition({ line: 8 }),
           LocationTestUtils.getPresetWikiLinkPosition({ line: 8, char: 12 })
@@ -259,6 +269,29 @@ suite("CopyNoteLink", function () {
     }
   );
 
+  describeSingleWS(
+    "WHEN the alias mode is none, THEN CopyNoteLink should only return a link without a note alias",
+    {
+      postSetupHook: ENGINE_HOOKS.setupBasic,
+      modConfigCb: (config) => {
+        ConfigUtils.setAliasMode(config, "none");
+        return config;
+      },
+    },
+    () => {
+      test("THEN CopyNoteLink should only return a link without a note alias", async () => {
+        const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const notePath = path.join(
+          vault2Path({ vault: vaults[0], wsRoot }),
+          "foo.md"
+        );
+        await VSCodeUtils.openFileInEditor(vscode.Uri.file(notePath));
+        const link = (await copyNoteLinkCommand.run())?.link;
+        expect(link).toEqual("[[foo]]");
+      });
+    }
+  );
+
   describeMultiWS(
     "GIVEN a basic setup on a multivault workspace with enableXVaultWikiLink enabled",
     {
@@ -281,8 +314,11 @@ suite("CopyNoteLink", function () {
       });
 
       test("WHEN the editor is on a dirty file, THEN CopyNoteLink should return undefined and cause an onDidSaveTextDocument to be fired", (done) => {
-        const engine = ExtensionProvider.getEngine();
-        const testNote = engine.notes["foo"];
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        const testNote = NoteUtils.create({
+          fname: "foo",
+          vault: vaults[0],
+        });
         // onEngineNoteStateChanged is not being triggered by save so test to make sure that save is being triggered instead
         const disposable = vscode.workspace.onDidSaveTextDocument(
           (textDocument) => {
@@ -330,7 +366,7 @@ suite("CopyNoteLink", function () {
             engine,
           });
 
-        const editor = await openNote(noteWithTarget);
+        let editor = await openNote(noteWithTarget);
         const pos = LocationTestUtils.getPresetWikiLinkPosition();
         const pos2 = LocationTestUtils.getPresetWikiLinkPosition({
           char: 12,
@@ -340,6 +376,8 @@ suite("CopyNoteLink", function () {
         expect(link).toEqual(
           `[[H1|dendron://vault1/${noteWithTarget.fname}#h1]]`
         );
+
+        editor = await openNote(noteWithTarget);
         editor.selection = new vscode.Selection(
           LocationTestUtils.getPresetWikiLinkPosition({ line: 8 }),
           LocationTestUtils.getPresetWikiLinkPosition({ line: 8, char: 12 })

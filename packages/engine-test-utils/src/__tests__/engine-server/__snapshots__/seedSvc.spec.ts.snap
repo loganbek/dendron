@@ -23,7 +23,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -74,7 +75,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -92,14 +92,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -121,6 +119,7 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
     duplicateNoteBehavior:
         action: useVault
         payload:
@@ -177,7 +176,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -228,7 +228,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -249,14 +248,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -278,6 +275,7 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
     duplicateNoteBehavior:
         action: useVault
         payload:
@@ -332,7 +330,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults: []
@@ -372,7 +371,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -388,14 +386,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -417,6 +413,7 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
 "
 `;
 
@@ -441,7 +438,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -483,7 +481,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -499,14 +496,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -528,6 +523,7 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
     duplicateNoteBehavior:
         action: useVault
         payload:
@@ -569,7 +565,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -611,7 +608,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -627,14 +623,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -656,6 +650,7 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: search
     duplicateNoteBehavior:
         action: useVault
         payload:
@@ -699,7 +694,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -746,7 +742,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -763,14 +758,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -792,13 +785,13 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
     duplicateNoteBehavior:
         action: useVault
         payload:
             - vault1
             - vault2
             - vaultThree
-            - dendron.foo
 "
 `;
 
@@ -821,7 +814,8 @@ commands:
         enableMultiSelect: false
     insertNoteIndex:
         enableMarker: false
-    copyNoteLink: {}
+    copyNoteLink:
+        aliasMode: title
     templateHierarchy: template
 workspace:
     vaults:
@@ -868,7 +862,6 @@ workspace:
         zoomSpeed: 1
         createStub: false
     enableAutoCreateOnDefinition: false
-    enableHandlebarTemplates: true
     enableXVaultWikiLink: false
     enableRemoteVaultInit: true
     enableUserTags: true
@@ -885,14 +878,12 @@ preview:
     enableNoteTitleForLink: true
     enableFrontmatterTags: true
     enableHashesForFMTags: false
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     automaticallyShowPreview: false
 publishing:
     enableFMTitle: true
     enableNoteTitleForLink: true
-    enableMermaid: true
     enablePrettyRefs: true
     enableKatex: true
     copyAssets: true
@@ -914,12 +905,12 @@ publishing:
     enableRandomlyColoredTags: true
     enableTaskNotes: true
     enablePrettyLinks: true
+    searchMode: lookup
     duplicateNoteBehavior:
         action: useVault
         payload:
             - vault1
             - vault2
             - vaultThree
-            - dendron.foo
 "
 `;

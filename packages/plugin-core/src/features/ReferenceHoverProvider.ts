@@ -3,16 +3,12 @@ import {
   containsNonDendronUri,
   DendronError,
   DVault,
-  NoteProps,
+  NotePropsMeta,
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
 import { findNonNoteFile, vault2Path } from "@dendronhq/common-server";
-import {
-  AnchorUtils,
-  DendronASTDest,
-  ProcFlavor,
-} from "@dendronhq/engine-server";
+import { AnchorUtils, DendronASTDest, ProcFlavor } from "@dendronhq/unified";
 import * as Sentry from "@sentry/node";
 import fs from "fs-extra";
 import _ from "lodash";
@@ -37,7 +33,7 @@ export default class ReferenceHoverProvider implements vscode.HoverProvider {
   }: {
     refAtPos: NonNullable<getReferenceAtPositionResp>;
     vault?: DVault;
-  }): Promise<string> {
+  }): Promise<string | MarkdownString> {
     const { wsRoot, config } = ExtensionProvider.getDWorkspace();
     const vpath = vault2Path({
       vault: PickerUtilsV2.getVaultForOpenEditor(),
@@ -69,14 +65,27 @@ export default class ReferenceHoverProvider implements vscode.HoverProvider {
     }
 
     // Otherwise, this is a note link, but the note doesn't exist (otherwise `provideHover` wouldn't call this function).
+    // Also let the user know if the file name is valid
+    const validationResp = NoteUtils.validateFname(refAtPos.ref);
     const vaultName = refAtPos.vaultName
       ? ` in vault "${refAtPos.vaultName}"`
       : "";
-
-    const autoCreateOnDefinition =
-      ConfigUtils.getWorkspace(config).enableAutoCreateOnDefinition;
-    const ctrlClickToCreate = autoCreateOnDefinition ? "Ctrl+Click or " : "";
-    return `Note ${refAtPos.ref}${vaultName} is missing, ${ctrlClickToCreate}use "Dendron: Go to Note" command to create it.`;
+    if (validationResp.isValid) {
+      const autoCreateOnDefinition =
+        ConfigUtils.getWorkspace(config).enableAutoCreateOnDefinition;
+      const ctrlClickToCreate = autoCreateOnDefinition ? "Ctrl+Click or " : "";
+      return `Note ${refAtPos.ref}${vaultName} is missing, ${ctrlClickToCreate}use "Dendron: Go to Note" command to create it.`;
+    } else {
+      return new MarkdownString(
+        `Note \`${
+          refAtPos.ref
+        }${vaultName}\` is missing, and the filename is invalid for the following reason:\n\n \`${
+          validationResp.reason
+        }\`.\n\n Maybe you meant \`${NoteUtils.cleanFname({
+          fname: refAtPos.ref,
+        })}\`?`
+      );
+    }
   }
 
   /** Returns a message if this is a non-dendron URI. */
@@ -158,11 +167,10 @@ export default class ReferenceHoverProvider implements vscode.HoverProvider {
       }
 
       // Check if what's being referenced is a note.
-      let note: NoteProps;
-      const maybeNotes = NoteUtils.getNotesByFnameFromEngine({
+      // If vault is specified, search only that vault. Otherwise search all vaults.
+      let note: NotePropsMeta;
+      const maybeNotes = await engine.findNotesMeta({
         fname: refAtPos.ref,
-        engine,
-        // If vault is specified, search only that vault. Otherwise search all vaults.
         vault,
       });
       if (maybeNotes.length === 0) {

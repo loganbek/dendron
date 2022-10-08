@@ -1,7 +1,7 @@
 import {
   ConfigUtils,
+  NoteDictsUtils,
   NoteProps,
-  NoteUtils,
   WorkspaceOpts,
 } from "@dendronhq/common-all";
 import {
@@ -9,12 +9,13 @@ import {
   NoteTestUtilsV4,
   TestPresetEntryV4,
 } from "@dendronhq/common-test-utils";
+import { DConfig } from "@dendronhq/common-server";
 import {
   DendronASTDest,
   MDUtilsV5,
   Processor,
   renderFromNote,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
@@ -55,13 +56,17 @@ async function createProc(
   opts: Parameters<TestPresetEntryV4["testFunc"]>[0],
   procOverride?: Partial<Parameters<typeof MDUtilsV5.procRemarkFull>[0]>
 ) {
-  const { engine, vaults, extra } = opts;
+  const { engine, vaults, wsRoot, extra } = opts;
+
   const procData = _.defaults(procOverride, {
-    engine,
+    noteToRender: (await engine.getNote("foo")).data!,
     dest: extra.dest,
     fname: "foo",
     vault: vaults[0],
-    config: engine.config,
+    config:
+      procOverride && procOverride.config
+        ? procOverride.config
+        : DConfig.readConfigSync(wsRoot),
   });
   if (procData.dest === DendronASTDest.HTML) {
     return MDUtilsV5.procRehypeFull(procData);
@@ -100,14 +105,9 @@ const WITH_TITLE = createProcTests({
 const WITH_VARIABLE = createProcTests({
   name: "WITH_VARIABLE",
   setupFunc: async (opts) => {
-    const { vaults, engine } = opts;
+    const { engine } = opts;
     const proc = await createProc(opts);
-    //const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
-    const note = NoteUtils.getNoteByFnameFromEngine({
-      vault: vaults[0],
-      fname: "foo",
-      engine,
-    });
+    const note = (await engine.getNote("foo")).data!;
     return readAndProcessNote({ note: note!, proc });
   },
   verifyFuncDict: {
@@ -121,7 +121,6 @@ const WITH_VARIABLE = createProcTests({
       ).toBeTruthy();
     },
     [DendronASTDest.HTML]: DendronASTDest.MD_REGULAR,
-    [DendronASTDest.MD_ENHANCED_PREVIEW]: DendronASTDest.MD_REGULAR,
   },
   preSetupHook: async (opts) => {
     await ENGINE_HOOKS.setupBasic(opts);
@@ -236,8 +235,16 @@ const WITH_FOOTNOTES = createProcTests({
 const NOTE_REF_BASIC_WITH_REHYPE = createProcTests({
   name: "NOTE_REF_WITH_REHYPE",
   setupFunc: async (opts) => {
+    const noteToRender = (await opts.engine.getNote("foo-id")).data!;
+    const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+      noteToRender,
+      (await opts.engine.getNote("bar")).data!,
+    ]);
+
     const proc = await createProc(opts, {
       wikiLinksOpts: { useId: true },
+      noteToRender,
+      noteCacheForRenderDict,
     });
 
     const text = `![[foo.md]]`;
@@ -272,7 +279,15 @@ const NOTE_REF_BASIC_WITH_REHYPE = createProcTests({
 const NOTE_W_LINK_AND_SPACE = createProcTests({
   name: "NOTE_W_LINK_AND_SPACE",
   setupFunc: async (opts) => {
-    const proc = await createProc(opts);
+    const noteToRender = (await opts.engine.getNote("foo-id")).data!;
+    const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+      noteToRender,
+    ]);
+
+    const proc = await createProc(opts, {
+      noteToRender,
+      noteCacheForRenderDict,
+    });
     const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
     return readAndProcessFile({ npath, proc });
   },
@@ -297,11 +312,21 @@ const NOTE_W_LINK_AND_SPACE = createProcTests({
   },
 });
 
-const NOTE_REF_RECURSIVE_BASIC_WITH_REHYPE = createProcTests({
+const NOTE_REF_RECURSIVE_WITH_REHYPE = createProcTests({
   name: "NOTE_REF_RECURSIVE_WITH_REHYPE",
   setupFunc: async (opts) => {
+    const noteToRender = (await opts.engine.getNote("foo-id")).data!;
+    const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+      noteToRender,
+      (await opts.engine.getNote("foo-id")).data!,
+      (await opts.engine.getNote("foo.one-id")).data!,
+      (await opts.engine.getNote("foo.two")).data!,
+    ]);
+
     const proc = await createProc(opts, {
       wikiLinksOpts: { useId: true },
+      noteToRender,
+      noteCacheForRenderDict,
     });
     const text = `![[foo.md]]`;
     return processText({ text, proc });
@@ -329,7 +354,15 @@ const NOTE_REF_RECURSIVE_BASIC_WITH_REHYPE = createProcTests({
 const WITH_TITLE_FOR_LINK = createProcTests({
   name: "WITH_TITLE_FOR_LINK",
   setupFunc: async (opts) => {
+    const noteToRender = (await opts.engine.getNote("foo")).data!;
+    const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+      noteToRender,
+      (await opts.engine.getNote("foo.ch1")).data!,
+    ]);
+
     const proc = await createProc(opts, {
+      noteToRender,
+      noteCacheForRenderDict,
       config: { ...ConfigUtils.genDefaultConfig(), useNoteTitleForLink: true },
     });
     const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
@@ -343,10 +376,6 @@ const WITH_TITLE_FOR_LINK = createProcTests({
     [DendronASTDest.MD_DENDRON]: async ({ extra }) => {
       const { respProcess } = extra;
       await checkVFile(respProcess, "[[foo.ch1]]");
-    },
-    [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-      const { respProcess } = extra;
-      await checkVFile(respProcess, "[Ch1](foo.ch1.md)");
     },
     [DendronASTDest.HTML]: async ({ extra }) => {
       const { respProcess } = extra;
@@ -365,7 +394,15 @@ const WITH_TITLE_FOR_LINK = createProcTests({
 const WITH_TITLE_FOR_LINK_X_VAULT = createProcTests({
   name: "WITH_TITLE_FOR_LINK_X_VAULT",
   setupFunc: async (opts) => {
+    const noteToRender = (await opts.engine.getNote("foo")).data!;
+    const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+      noteToRender,
+      (await opts.engine.getNote("bar")).data!,
+    ]);
+
     const proc = await createProc(opts, {
+      noteToRender,
+      noteCacheForRenderDict,
       config: { ...ConfigUtils.genDefaultConfig(), useNoteTitleForLink: true },
     });
     const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
@@ -375,13 +412,6 @@ const WITH_TITLE_FOR_LINK_X_VAULT = createProcTests({
     [DendronASTDest.MD_REGULAR]: async ({ extra }) => {
       const { respProcess } = extra;
       await checkVFile(respProcess, "[Bar](bar)");
-    },
-    [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-      const { respProcess } = extra;
-      await checkVFile(
-        respProcess,
-        `[Bar](${path.join("..", "vault2", "bar.md")})`
-      );
     },
   },
   preSetupHook: async (opts) => {
@@ -396,7 +426,7 @@ const WITH_TITLE_FOR_LINK_X_VAULT = createProcTests({
 const ALL_TEST_CASES = [
   ...WITH_ABBR,
   ...WITH_VARIABLE,
-  ...NOTE_REF_RECURSIVE_BASIC_WITH_REHYPE,
+  ...NOTE_REF_RECURSIVE_WITH_REHYPE,
   ...NOTE_REF_BASIC_WITH_REHYPE,
   ...WITH_TITLE,
   ...NOTE_W_LINK_AND_SPACE,

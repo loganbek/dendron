@@ -3,7 +3,6 @@ import {
   DVault,
   minimatch,
   NoteProps,
-  NoteUtils,
   stringifyError,
   VaultUtils,
   WorkspaceOpts,
@@ -82,11 +81,7 @@ export abstract class PublishPod<
       vaults: engine.vaults,
       vname: vaultName,
     });
-    const note = NoteUtils.getNoteByFnameFromEngine({
-      fname,
-      engine,
-      vault: vault!,
-    });
+    const note = (await engine.findNotes({ fname, vault }))[0];
     if (!note) {
       throw Error("no note found");
     }
@@ -234,9 +229,10 @@ export abstract class ExportPod<
     const destURL = URI.file(resolvePath(dest, engine.wsRoot));
 
     // parse notes into NoteProps
+    const engineNotes = await engine.findNotes({ excludeStub: false });
     const notes = this.prepareNotesForExport({
       config,
-      notes: _.values(engine.notes),
+      notes: engineNotes,
     });
 
     try {

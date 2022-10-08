@@ -6,9 +6,10 @@ import {
   DVaultVisibility,
   NoteProps,
   NotePropsByIdDict,
+  ReducedDEngine,
   WorkspaceOpts,
 } from "@dendronhq/common-all";
-import { tmpDir, vault2Path } from "@dendronhq/common-server";
+import { DConfig, tmpDir, vault2Path } from "@dendronhq/common-server";
 import {
   AssertUtils,
   NoteTestUtilsV4,
@@ -53,9 +54,9 @@ const dupNote = (payload: DVault | string[]) => {
   return out;
 };
 
-const checkNotes = (opts: {
+const checkNotes = async (opts: {
   filteredNotes: NotePropsByIdDict;
-  engineNotes: NotePropsByIdDict;
+  engine: ReducedDEngine;
   match: ({
     id: string;
   } & Partial<NoteProps>)[];
@@ -63,13 +64,15 @@ const checkNotes = (opts: {
     id: string;
   }[];
 }) => {
-  const { noMatch, filteredNotes, engineNotes } = opts;
+  const { noMatch, filteredNotes, engine } = opts;
   const notesActual = _.sortBy(_.values(opts.filteredNotes), "id");
-  const notesExpected = _.map(opts.match, (opts) => {
-    let note = { ...engineNotes[opts.id] };
-    note = { ...note, ...opts };
-    return note;
-  });
+  const notesExpected = await Promise.all(
+    _.map(opts.match, async (opts) => {
+      let note = { ...(await engine.getNote(opts.id)).data };
+      note = { ...note, ...opts };
+      return note;
+    })
+  );
   expect(notesActual).toEqual(_.sortBy(notesExpected, "id"));
   if (noMatch) {
     expect(
@@ -223,7 +226,7 @@ describe("SiteUtils", () => {
           expect(_.size(notes)).toEqual(1);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [{ id: "foo", parent: null, children: [] }],
             noMatch: [{ id: "foo.ch1" }],
           });
@@ -274,7 +277,7 @@ describe("SiteUtils", () => {
           expect(_.size(notes)).toEqual(2);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [{ id: "foo", parent: null }, { id: "foo.ch1" }],
           });
         },
@@ -380,7 +383,7 @@ describe("SiteUtils", () => {
             config,
           });
           const root = (
-            await engine.findNotes({
+            await engine.findNotesMeta({
               fname: "root",
               vault: vaults[0],
             })
@@ -388,7 +391,7 @@ describe("SiteUtils", () => {
           expect(domains.length).toEqual(3);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [
               { id: root!.id },
               { id: "foo" },
@@ -439,7 +442,7 @@ describe("SiteUtils", () => {
           const { notes } = await SiteUtils.filterByConfig({ engine, config });
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [],
           });
         },
@@ -484,7 +487,7 @@ describe("SiteUtils", () => {
           expect(_.size(domains)).toEqual(2);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [{ id: "foo", parent: null }, { id: "foo.ch1" }],
           });
         },
@@ -533,7 +536,7 @@ describe("SiteUtils", () => {
           expect(domains.length).toEqual(2);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [{ id: "foo-other", parent: null }, { id: "foo.ch1" }],
           });
         },
@@ -586,7 +589,7 @@ describe("SiteUtils", () => {
           const { notes } = await SiteUtils.filterByConfig({ engine, config });
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [
               { id: "foo", parent: null },
               { id: "foo.ch1" },
@@ -638,7 +641,7 @@ describe("SiteUtils", () => {
           const { notes } = await SiteUtils.filterByConfig({ engine, config });
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [
               { id: "foo", parent: null },
               { id: "foo.ch1" },
@@ -720,13 +723,13 @@ describe("SiteUtils", () => {
 
     test("blacklist vault", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
+        async ({ engine, wsRoot, vaults }) => {
           const { notes, domains } = await SiteUtils.filterByConfig({
             engine,
-            config: engine.config,
+            config: DConfig.readConfigSync(wsRoot),
           });
           const root = (
-            await engine.findNotes({
+            await engine.findNotesMeta({
               fname: "root",
               vault: vaults[0],
             })
@@ -734,7 +737,7 @@ describe("SiteUtils", () => {
           expect(domains.length).toEqual(2);
           checkNotes({
             filteredNotes: notes,
-            engineNotes: engine.notes,
+            engine,
             match: [
               { id: root!.id, children: ["foo"] },
               { id: "foo" },

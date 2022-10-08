@@ -3,13 +3,13 @@ import {
   DLink,
   ErrorFactory,
   isNumeric,
+  minimatch,
   NoteProps,
   RespV3,
 } from "@dendronhq/common-all";
 import _ from "lodash";
 import { DateTime } from "luxon";
-import minimatch from "minimatch";
-import { LinkUtils } from "../markdown";
+import { LinkUtils } from "@dendronhq/unified";
 
 export type NoteMetadataValidationProps = {
   /**

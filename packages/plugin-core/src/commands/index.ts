@@ -5,10 +5,10 @@ import { CodeCommandConstructor } from "./base";
 import { BrowseNoteCommand } from "./BrowseNoteCommand";
 import { ChangeWorkspaceCommand } from "./ChangeWorkspace";
 import { ConfigureCommand } from "./ConfigureCommand";
+import { ConfigureLocalOverride } from "./ConfigureLocalOverride";
 import { ConfigureGraphStylesCommand } from "./ConfigureGraphStyles";
 import { ConfigureNoteTraitsCommand } from "./ConfigureNoteTraitsCommand";
 import { ConfigurePodCommand } from "./ConfigurePodCommand";
-import { ConfigureWithUICommand } from "./ConfigureWithUI";
 import { ContributeCommand } from "./Contribute";
 import { ConvertCandidateLinkCommand } from "./ConvertCandidateLink";
 import { ConvertLinkCommand } from "./ConvertLink";
@@ -25,12 +25,11 @@ import { CreateSchemaFromHierarchyCommand } from "./CreateSchemaFromHierarchyCom
 import { CreateScratchNoteCommand } from "./CreateScratchNoteCommand";
 import { CreateTaskCommand } from "./CreateTask";
 import { DeleteHookCommand } from "./DeleteHookCommand";
-import { DeleteNodeCommand } from "./DeleteNodeCommand";
+import { DeleteCommand } from "./DeleteCommand";
 import { DevTriggerCommand } from "./DevTriggerCommand";
 import { DiagnosticsReportCommand } from "./DiagnosticsReport";
 import { DisableTelemetryCommand } from "./DisableTelemetry";
 import { DoctorCommand } from "./Doctor";
-import { DumpStateCommand } from "./DumpStateCommand";
 import { EnableTelemetryCommand } from "./EnableTelemetry";
 import { ExportPodCommand } from "./ExportPod";
 import { GoDownCommand } from "./GoDownCommand";
@@ -45,7 +44,7 @@ import { LaunchTutorialWorkspaceCommand } from "./LaunchTutorialWorkspaceCommand
 import { MigrateSelfContainedVaultCommand } from "./MigrateSelfContainedVault";
 import { MoveHeaderCommand } from "./MoveHeader";
 import { MoveNoteCommand } from "./MoveNoteCommand";
-import { NoteLookupAutoCompleteCommand } from "./NoteLookupAutoCompleteCommand";
+import { NoteLookupAutoCompleteCommand } from "./node/NoteLookupAutoCompleteCommand";
 import { NoteLookupCommand } from "./NoteLookupCommand";
 import { OpenBackupCommand } from "./OpenBackupCommand";
 import { OpenLinkCommand } from "./OpenLink";
@@ -78,9 +77,16 @@ import { SyncCommand } from "./Sync";
 import { TaskCompleteCommand } from "./TaskComplete";
 import { TaskStatusCommand } from "./TaskStatus";
 import { UpgradeSettingsCommand } from "./UpgradeSettings";
+import { ValidateEngineCommand } from "./ValidateEngineCommand";
 import { VaultAddCommand } from "./VaultAddCommand";
 import { VaultConvertCommand } from "./VaultConvert";
 import { VaultRemoveCommand } from "./VaultRemoveCommand";
+import { RenameNoteCommand } from "./RenameNoteCommand";
+import { CreateNoteCommand } from "./CreateNoteCommand";
+import { MergeNoteCommand } from "./MergeNoteCommand";
+import { CopyCodespaceURL } from "./CopyCodespaceURL";
+import { MoveSelectionToCommand } from "./MoveSelectionToCommand";
+import { CopyAsCommand } from "./CopyAsCommand";
 
 /**
  * Note: this does not contain commands that have parametered constructors, as
@@ -92,6 +98,7 @@ const ALL_COMMANDS = [
   BrowseNoteCommand,
   ChangeWorkspaceCommand,
   ConfigureCommand,
+  ConfigureLocalOverride,
   ConfigurePodCommand,
   ConfigureServiceConnection,
   ConfigureExportPodV2,
@@ -106,13 +113,12 @@ const ALL_COMMANDS = [
   MigrateSelfContainedVaultCommand,
   CreateSchemaFromHierarchyCommand,
   DeleteHookCommand,
-  DeleteNodeCommand,
+  DeleteCommand,
   DiagnosticsReportCommand,
   DisableTelemetryCommand,
   DevTriggerCommand,
   EnableTelemetryCommand,
   DoctorCommand,
-  DumpStateCommand,
   ExportPodCommand,
   ExportPodV2Command,
   GoDownCommand,
@@ -135,6 +141,8 @@ const ALL_COMMANDS = [
   PasteLinkCommand,
   PublishPodCommand,
   MoveNoteCommand,
+  MoveSelectionToCommand,
+  RenameNoteCommand,
   RenameHeaderCommand,
   MoveHeaderCommand,
   RefactorHierarchyCommandV2,
@@ -151,7 +159,6 @@ const ALL_COMMANDS = [
   SnapshotVaultCommand,
   SyncCommand,
   ApplyTemplateCommand,
-  ConfigureWithUICommand,
   UpgradeSettingsCommand,
   VaultAddCommand,
   VaultRemoveCommand,
@@ -169,6 +176,11 @@ const ALL_COMMANDS = [
   CreateNoteWithUserDefinedTrait,
   OpenBackupCommand,
   InstrumentedWrapperCommand,
+  ValidateEngineCommand,
+  MergeNoteCommand,
+  CreateNoteCommand,
+  CopyCodespaceURL,
+  CopyAsCommand,
 ] as CodeCommandConstructor[];
 
 export { ALL_COMMANDS };

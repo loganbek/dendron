@@ -1,5 +1,6 @@
 import {
   DVault,
+  genHash,
   genUUID,
   NoteProps,
   NoteUtils,
@@ -9,11 +10,11 @@ import {
   DEngineClient,
   EngineWriteOptsV2,
   SchemaTemplate,
+  ErrorUtils,
 } from "@dendronhq/common-all";
 import {
   file2Note,
   file2Schema,
-  genHash,
   note2File,
   resolvePath,
   schemaModuleProps2File,
@@ -31,6 +32,7 @@ export type CreateNoteOptsV4 = {
   genRandomId?: boolean;
   noWrite?: boolean;
   custom?: any;
+  stub?: boolean;
 };
 
 export type CreateNoteInputOpts = {
@@ -141,8 +143,17 @@ export class NoteTestUtilsV4 {
    * @returns
    */
   static createNote = async (opts: CreateNoteOptsV4) => {
-    const { fname, vault, props, body, genRandomId, noWrite, wsRoot, custom } =
-      _.defaults(opts, { noWrite: false });
+    const {
+      fname,
+      vault,
+      props,
+      body,
+      genRandomId,
+      noWrite,
+      wsRoot,
+      custom,
+      stub,
+    } = _.defaults(opts, { noWrite: false });
     /**
      * Make sure snapshots stay consistent
      */
@@ -159,8 +170,9 @@ export class NoteTestUtilsV4 {
       fname,
       vault,
       body,
+      stub,
     });
-    if (!noWrite) {
+    if (!noWrite && !stub) {
       await note2File({ note, vault, wsRoot });
     }
     return note;
@@ -205,7 +217,11 @@ export class NoteTestUtilsV4 {
   ) {
     const { fname, vault, wsRoot } = opts;
     const npath = path.join(vault2Path({ vault, wsRoot }), fname + ".md");
-    const note = file2Note(npath, vault);
+    const resp = file2Note(npath, vault);
+    if (ErrorUtils.isErrorResp(resp)) {
+      throw resp.error;
+    }
+    const note = resp.data;
     const newNote = cb(note);
     return note2File({ note: newNote, vault, wsRoot });
   }

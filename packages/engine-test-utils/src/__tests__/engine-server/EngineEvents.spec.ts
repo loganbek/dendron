@@ -147,7 +147,7 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
         async ({ engine }) => {
           const engineClient = engine as DendronEngineClient;
 
-          const fooUpdated = { ...engine.notes["foo"] };
+          const fooUpdated = { ...(await engine.getNote("foo")).data! };
           fooUpdated.id = "updatedID";
 
           engineClient.onEngineNoteStateChanged(
@@ -167,7 +167,7 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
                 "update"
               ) as NoteChangeUpdateEntry[];
 
-              testAssertsInsideCallback(() => {
+              testAssertsInsideCallback(async () => {
                 expect(createEntries.length).toEqual(1);
                 expect(updateEntries.length).toEqual(2);
                 expect(deleteEntries.length).toEqual(1);
@@ -175,10 +175,11 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
                 expect(createEntries[0].note.fname).toEqual("foo");
                 expect(createEntries[0].note.id).toEqual("updatedID");
                 expect(createEntries[0].note.children).toEqual(["foo.ch1"]);
-                expect(
-                  createEntries[0].note.parent &&
-                    engine.notes[createEntries[0].note.parent].fname
-                ).toEqual("root");
+                expect(createEntries[0].note.parent).toBeTruthy();
+                const note = (
+                  await engine.getNote(createEntries[0].note.parent!)
+                ).data!;
+                expect(note.fname).toEqual("root");
                 expect(deleteEntries[0].note.fname).toEqual("foo");
                 expect(deleteEntries[0].note.id).toEqual("foo");
 
@@ -334,7 +335,7 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
             }
           );
 
-          await engineClient.updateNote(rootFile!);
+          await engineClient.writeNote(rootFile!, { metaOnly: true });
         },
         {
           expect,
@@ -352,35 +353,48 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
           const engineClient = engine as DendronEngineClient;
 
           // foo has one child in the ENGINE_HOOKS.setupBasic setup
-          const foo = engine.notes["foo"];
+          const foo = (await engine.getNote("foo")).data!;
 
           engineClient.onEngineNoteStateChanged(
             (noteChangeEntries: NoteChangeEntry[]) => {
+              // foo stub is created
               const createEntries = extractNoteChangeEntriesByType(
                 noteChangeEntries,
                 "create"
               );
 
+              // original foo is created
               const deleteEntries = extractNoteChangeEntriesByType(
                 noteChangeEntries,
                 "delete"
               );
 
+              // foo's parent is updated, foo's child is updated
               const updateEntries = extractNoteChangeEntriesByType(
                 noteChangeEntries,
                 "update"
               ) as NoteChangeUpdateEntry[];
 
               testAssertsInsideCallback(() => {
-                expect(createEntries.length).toEqual(0);
-                expect(updateEntries.length).toEqual(1);
-                expect(deleteEntries.length).toEqual(0);
+                expect(createEntries.length).toEqual(1);
+                expect(updateEntries.length).toEqual(2);
+                expect(deleteEntries.length).toEqual(1);
 
                 const updatedEntry = updateEntries[0];
 
                 expect(updatedEntry.status).toEqual("update");
-                expect(updatedEntry.note.fname).toEqual("foo");
-                expect(updatedEntry.note.stub).toBeTruthy();
+                expect(updatedEntry.note.fname).toEqual("root");
+                expect(updatedEntry.note.children.length).toEqual(2);
+
+                expect(updateEntries[1].status).toEqual("update");
+                expect(updateEntries[1].note.fname).toEqual("foo.ch1");
+                expect(updateEntries[1].note.parent).toEqual(
+                  createEntries[0].note.id
+                );
+
+                expect(deleteEntries[0].note.fname).toEqual("foo");
+                expect(createEntries[0].note.fname).toEqual("foo");
+                expect(createEntries[0].note.stub).toBeTruthy();
               }, done);
             }
           );
@@ -403,7 +417,7 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
           const engineClient = engine as DendronEngineClient;
 
           // bar has no children in the ENGINE_HOOKS_MULTI.setupBasicMulti setup.
-          const bar = engine.notes["bar"];
+          const bar = (await engine.getNote("bar")).data!;
 
           engineClient.onEngineNoteStateChanged(
             (noteChangeEntries: NoteChangeEntry[]) => {
@@ -464,7 +478,7 @@ describe("GIVEN a DendronEngineClient running on client-side", () => {
       runEngineTestV5(
         async ({ engine, vaults }) => {
           const engineClient = engine as DendronEngineClient;
-          const bar = engine.notes["bar"];
+          const bar = (await engine.getNote("bar")).data!;
 
           engineClient.onEngineNoteStateChanged(
             (noteChangeEntries: NoteChangeEntry[]) => {

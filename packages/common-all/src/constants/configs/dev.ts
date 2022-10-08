@@ -1,5 +1,5 @@
 import { DendronConfigEntryCollection } from "../../types/configs/base";
-import { DendronDevConfig } from "../../types/configs/dev/dev";
+import { DendronDevConfig } from "../../types/configs/dev/DendronDevConfig";
 
 export const DEV: DendronConfigEntryCollection<DendronDevConfig> = {
   nextServerUrl: {
@@ -29,5 +29,13 @@ export const DEV: DendronConfigEntryCollection<DendronDevConfig> = {
   enableSelfContainedVaults: {
     label: "Enable self contained vaults",
     desc: "If enabled, Dendron will create self contained vaults. Dendron can still read self contained vaults even if this is disabled.",
+  },
+  forceWatcherType: {
+    label: "Specify the file watcher type",
+    desc: "plugin: Uses VSCode's builtin watcher, engine: Uses the engine watcher, watching the files directly without VSCode",
+  },
+  enableExperimentalIFrameNoteRef: {
+    label: "Enable iframe note references.",
+    desc: "Uses iframes for note references when publishing a vault using the nextjs export pod.",
   },
 };

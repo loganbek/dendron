@@ -2,10 +2,8 @@ import {
   ContextualUIEvents,
   LookupSelectionTypeEnum,
 } from "@dendronhq/common-all";
-import {
-  BAD_FRONTMATTER_CODE,
-  DoctorActionsEnum,
-} from "@dendronhq/engine-server";
+import { DoctorActionsEnum } from "@dendronhq/engine-server";
+import { BAD_FRONTMATTER_CODE } from "@dendronhq/unified";
 import isUrl from "is-url";
 import _ from "lodash";
 import {
@@ -28,7 +26,7 @@ import { PasteLinkCommand } from "../commands/PasteLink";
 import { RenameHeaderCommand } from "../commands/RenameHeader";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { sentryReportingCallback } from "../utils/analytics";
-import { getHeaderAt, isBrokenWikilink } from "../utils/editor";
+import { EditorUtils } from "../utils/EditorUtils";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { DendronExtension } from "../workspace";
 import { WSUtilsV2 } from "../WSUtilsV2";
@@ -107,7 +105,7 @@ export const refactorProvider: CodeActionProvider = {
       const { editor, selection, text } = VSCodeUtils.getSelection();
       if (!editor || !selection) return;
 
-      const header = getHeaderAt({
+      const header = EditorUtils.getHeaderAt({
         document: editor.document,
         position: selection.start,
       });
@@ -118,7 +116,8 @@ export const refactorProvider: CodeActionProvider = {
         isPreferred: true,
         kind: CodeActionKind.RefactorInline,
         command: {
-          command: new RenameHeaderCommand().key,
+          command: new RenameHeaderCommand(ExtensionProvider.getExtension())
+            .key,
           title: "Rename Header",
           arguments: [{ source: ContextualUIEvents.ContextualUICodeAction }],
         },
@@ -154,7 +153,7 @@ export const refactorProvider: CodeActionProvider = {
         isPreferred: true,
         kind: CodeActionKind.RefactorInline,
         command: {
-          command: new CopyNoteRefCommand().key,
+          command: new CopyNoteRefCommand(ExtensionProvider.getExtension()).key,
           title: "Copy Header Reference",
           arguments: [{ source: ContextualUIEvents.ContextualUICodeAction }],
         },
@@ -179,11 +178,16 @@ export const refactorProvider: CodeActionProvider = {
 
       if (_range.isEmpty) {
         const { engine } = ext.getDWorkspace();
-        const note = new WSUtilsV2(ext).getActiveNote();
+        const note = await new WSUtilsV2(ext).getActiveNote();
         //return a code action for create note if user clicked next to a broken wikilink
         if (
           note &&
-          (await isBrokenWikilink({ editor, engine, note, selection }))
+          (await EditorUtils.isBrokenWikilink({
+            editor,
+            engine,
+            note,
+            selection,
+          }))
         ) {
           return [brokenWikilinkAction];
         }

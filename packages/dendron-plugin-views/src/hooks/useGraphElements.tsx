@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import {
   DVault,
   NoteDictsUtils,
@@ -11,6 +12,7 @@ import {
   VaultUtils,
   milliseconds,
   FIFOQueue,
+  NotePropsMeta,
 } from "@dendronhq/common-all";
 import { createLogger, engineSlice } from "@dendronhq/common-frontend";
 import { message } from "antd";
@@ -36,7 +38,7 @@ const DEFAULT_NODE_CLASSES = `${DEFAULT_CLASSES}`; //color-fill
 const DEFAULT_EDGE_CLASSES = `${DEFAULT_CLASSES}`;
 
 type QueueData = {
-  note: NoteProps;
+  note: NotePropsMeta;
   /**
    * How far (in the graph) away is this note from the original note?
    */
@@ -52,10 +54,12 @@ function computeHierarchicalGraphElements({
   notes,
   noteActive,
   maxDistance,
+  showHierarchy,
 }: {
   notes: NotePropsByIdDict;
   noteActive: NoteProps;
   maxDistance: number;
+  showHierarchy?: boolean;
 }): GraphElements {
   // Initialize edges
   const edges: GraphEdges = {
@@ -63,6 +67,13 @@ function computeHierarchicalGraphElements({
     links: [],
   };
   const nodes: GraphNodes = [];
+
+  if (!showHierarchy) {
+    return {
+      nodes,
+      edges,
+    };
+  }
   const activeNote = notes[noteActive.id];
 
   // Add descendents (children, grandchildren, etc) depending on the specified
@@ -175,12 +186,16 @@ function computeLinkedElements({
   maxDistance,
   vaults,
   fNameDict,
+  showBacklinks,
+  showOutwardLinks,
 }: {
   notes: NotePropsByIdDict;
   noteActive: NoteProps;
   maxDistance: number;
   vaults: DVault[] | undefined;
   fNameDict: NotePropsByFnameDict;
+  showBacklinks?: boolean;
+  showOutwardLinks?: boolean;
 }): GraphElements {
   // Initialize edges
   const edges: GraphEdges = {
@@ -227,56 +242,59 @@ function computeLinkedElements({
 
     if (data.distance < maxDistance) {
       const noteVaultClass = getVaultClass(note.vault);
+      if (showBacklinks) {
+        // setup inward links for note
 
-      // setup inward links for note
-      const connectedNotes = NoteUtils.getNotesWithLinkTo({
-        note,
-        notes,
-      });
-      connectedNotes.forEach((connectedNote) => {
-        // return if it is a self-referential link or there's already an outward link for this set of nodes
-        if (
-          note.id === connectedNote.id ||
-          linkedEdgesMap.has(`${connectedNote.id}_${note.id}`)
-        )
-          return;
+        const connectedNotes = NoteUtils.getNotesWithLinkTo({
+          note,
+          notes: Object.values(notes),
+        });
+        connectedNotes.forEach((connectedNote) => {
+          // return if it is a self-referential link or there's already an outward link for this set of nodes
+          if (
+            note.id === connectedNote.id ||
+            linkedEdgesMap.has(`${connectedNote.id}_${note.id}`)
+          )
+            return;
 
-        // add link to the map
-        linkedEdgesMap.set(`${note.id}_${connectedNote.id}`, "");
-        nodesQueue.enqueue({
-          note: connectedNote,
-          distance: data.distance + 1,
-          classes: `${DEFAULT_NODE_CLASSES} ${getVaultClass(note.vault)}`,
+          // add link to the map
+          linkedEdgesMap.set(`${note.id}_${connectedNote.id}`, "");
+          nodesQueue.enqueue({
+            note: connectedNote,
+            distance: data.distance + 1,
+            classes: `${DEFAULT_NODE_CLASSES} ${getVaultClass(note.vault)}`,
+          });
+          edges.links.push({
+            data: {
+              group: "edges",
+              id: `${connectedNote.id}_${note.id}`,
+              source: connectedNote.id,
+              target: note.id,
+              fname: note.fname,
+              stub:
+                _.isUndefined(note.stub) && _.isUndefined(connectedNote.stub)
+                  ? false
+                  : !!(note.stub || connectedNote.stub),
+            },
+            classes: `${DEFAULT_EDGE_CLASSES} links ${noteVaultClass}`,
+          });
         });
-        edges.links.push({
-          data: {
-            group: "edges",
-            id: `${note.id}_${connectedNote.id}`,
-            source: note.id,
-            target: connectedNote.id,
-            fname: note.fname,
-            stub:
-              _.isUndefined(note.stub) && _.isUndefined(connectedNote.stub)
-                ? false
-                : !!(note.stub || connectedNote.stub),
-          },
-          classes: `${DEFAULT_EDGE_CLASSES} links ${noteVaultClass}`,
-        });
-      });
+      }
 
       // setup outward links for note
-
-      const outwardLinkedConnections = getOutwardLinkedConnections({
-        note,
-        vaults,
-        notes,
-        fNameDict,
-        nodesQueue,
-        data,
-        noteVaultClass,
-        linkedEdgesMap,
-      });
-      edges.links.push(...outwardLinkedConnections);
+      if (showOutwardLinks) {
+        const outwardLinkedConnections = getOutwardLinkedConnections({
+          note,
+          vaults,
+          notes,
+          fNameDict,
+          nodesQueue,
+          data,
+          noteVaultClass,
+          linkedEdgesMap,
+        });
+        edges.links.push(...outwardLinkedConnections);
+      }
     }
   }
   return {
@@ -291,6 +309,9 @@ const getLocalNoteGraphElements = ({
   vaults,
   fNameDict,
   maxDistance,
+  showBacklinks,
+  showOutwardLinks,
+  showHierarchy,
 }: {
   notes: NotePropsByIdDict;
   fNameDict: NotePropsByFnameDict;
@@ -298,6 +319,9 @@ const getLocalNoteGraphElements = ({
   vaults: DVault[] | undefined;
   noteActive: NoteProps | undefined;
   maxDistance: number;
+  showBacklinks?: boolean;
+  showOutwardLinks?: boolean;
+  showHierarchy?: boolean;
 }): GraphElements => {
   if (_.isUndefined(noteActive)) {
     return {
@@ -318,6 +342,7 @@ const getLocalNoteGraphElements = ({
     notes,
     noteActive,
     maxDistance,
+    showHierarchy,
   });
 
   const linkedElements = computeLinkedElements({
@@ -326,6 +351,8 @@ const getLocalNoteGraphElements = ({
     maxDistance,
     vaults,
     fNameDict,
+    showBacklinks,
+    showOutwardLinks,
   });
 
   const graphElements = {
@@ -348,7 +375,7 @@ function getOutwardLinkedConnections({
   noteVaultClass,
   linkedEdgesMap,
 }: {
-  note: NoteProps;
+  note: NotePropsMeta;
   vaults: DVault[] | undefined;
   notes: NotePropsByIdDict;
   fNameDict: NotePropsByFnameDict;
@@ -730,12 +757,18 @@ const useGraphElements = ({
   config,
   noteActive,
   wsRoot,
+  showBacklinks,
+  showOutwardLinks,
+  showHierarchy,
 }: {
   type: "note" | "schema";
   engine: engineSlice.EngineState;
   config: GraphConfig;
   noteActive?: NoteProps | undefined;
   wsRoot: string;
+  showBacklinks?: boolean | undefined;
+  showOutwardLinks?: boolean | undefined;
+  showHierarchy?: boolean | undefined;
 }) => {
   const [elements, setElements] = useState<GraphElements>({
     nodes: [],
@@ -790,11 +823,21 @@ const useGraphElements = ({
           vaults: engine.vaults,
           noteActive,
           maxDistance: config["filter.depth"].value || 1,
+          showBacklinks,
+          showOutwardLinks,
+          showHierarchy,
         })
       );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noteActive, engine.notes, isLocalGraph, config["filter.depth"].value]);
+  }, [
+    noteActive,
+    engine.notes,
+    isLocalGraph,
+    showBacklinks,
+    showOutwardLinks,
+    showHierarchy,
+    config["filter.depth"].value,
+  ]);
 
   useEffect(() => {
     if (

@@ -1,53 +1,63 @@
 import {
   asyncLoopOneAtATime,
+  DendronASTDest,
   DendronError,
   DLink,
+  DNodeUtils,
+  DNoteHeaderAnchor,
   DNoteLink,
   DVault,
+  ErrorUtils,
   ERROR_SEVERITY,
+  extractNoteChangeEntryCounts,
   getSlugger,
+  IntermediateDendronConfig,
+  isNotUndefined,
+  NoteChangeEntry,
   NoteProps,
   NoteQuickInput,
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { file2Note, vault2Path } from "@dendronhq/common-server";
+import { DConfig, file2Note, vault2Path } from "@dendronhq/common-server";
+import { Heading, HistoryEvent, Node } from "@dendronhq/engine-server";
 import {
+  MDUtilsV5,
+  Processor,
+  DendronASTNode,
+  DendronASTTypes,
+  MdastUtils,
+  RemarkUtils,
   Anchor,
   AnchorUtils,
-  DendronASTDest,
-  DendronASTTypes,
-  Heading,
-  HistoryEvent,
   LinkUtils,
-  MDUtilsV5,
-  Node,
-  Processor,
-  RemarkUtils,
-  visit,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import path from "path";
-import { Location } from "vscode";
-import { DendronQuickPickerV2 } from "../components/lookup/types";
-import { PickerUtilsV2 } from "../components/lookup/utils";
-import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
-import { DENDRON_COMMANDS } from "../constants";
-import { delayedUpdateDecorations } from "../features/windowDecorations";
-import { VSCodeUtils } from "../vsCodeUtils";
-import { findReferences, FoundRefT } from "../utils/md";
-import { BasicCommand } from "./base";
-import { ExtensionProvider } from "../ExtensionProvider";
+import visit from "unist-util-visit";
+import { Disposable, Location } from "vscode";
 import {
   ILookupControllerV3,
   LookupControllerV3CreateOpts,
 } from "../components/lookup/LookupControllerV3Interface";
 import { NoteLookupProviderSuccessResp } from "../components/lookup/LookupProviderV3Interface";
+import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
+import { NotePickerUtils } from "../components/lookup/NotePickerUtils";
+import { DendronQuickPickerV2 } from "../components/lookup/types";
+import { PickerUtilsV2 } from "../components/lookup/utils";
+import { DendronContext, DENDRON_COMMANDS } from "../constants";
+import { ExtensionProvider } from "../ExtensionProvider";
+import { delayedUpdateDecorations } from "../features/windowDecorations";
 import { IEngineAPIService } from "../services/EngineAPIServiceInterface";
+import { AutoCompleter } from "../utils/autoCompleter";
+import { findReferences, FoundRefT, hasAnchorsToUpdate } from "../utils/md";
+import { ProxyMetricUtils } from "../utils/ProxyMetricUtils";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
+import { VSCodeUtils } from "../vsCodeUtils";
+import { BasicCommand } from "./base";
 
 type CommandInput =
   | {
-      initialValue?: string;
       nonInteractive?: boolean;
       useSameVault?: boolean;
     }
@@ -59,7 +69,7 @@ type CommandOpts = {
   engine: IEngineAPIService;
 } & CommandInput;
 type CommandOutput = {
-  updated: NoteProps[];
+  changed: NoteChangeEntry[];
 } & CommandOpts;
 
 export class MoveHeaderCommand extends BasicCommand<
@@ -91,10 +101,11 @@ export class MoveHeaderCommand extends BasicCommand<
 
   private getProc = (engine: IEngineAPIService, note: NoteProps) => {
     return MDUtilsV5.procRemarkFull({
-      engine,
+      noteToRender: note,
       fname: note.fname,
       vault: note.vault,
       dest: DendronASTDest.MD_DENDRON,
+      config: DConfig.readConfigSync(engine.wsRoot),
     });
   };
 
@@ -104,11 +115,12 @@ export class MoveHeaderCommand extends BasicCommand<
    * @param engine
    * @returns {}
    */
-  private validateAndProcessInput(engine: IEngineAPIService): {
+  private async validateAndProcessInput(engine: IEngineAPIService): Promise<{
     proc: Processor;
     origin: NoteProps;
     targetHeader: Heading;
-  } {
+    targetHeaderIndex: number;
+  }> {
     const { editor, selection } = VSCodeUtils.getSelection();
 
     // basic input validation
@@ -116,7 +128,7 @@ export class MoveHeaderCommand extends BasicCommand<
     if (!selection) throw this.headerNotSelectedError;
 
     const line = editor.document.lineAt(selection.start.line).text;
-    const maybeNote = ExtensionProvider.getWSUtils().getNoteFromDocument(
+    const maybeNote = await ExtensionProvider.getWSUtils().getNoteFromDocument(
       editor.document
     );
     if (!maybeNote) {
@@ -125,18 +137,39 @@ export class MoveHeaderCommand extends BasicCommand<
 
     // parse selection and get the target header node
     const proc = this.getProc(engine, maybeNote);
+
+    // TODO: shoudl account for line number
+    const bodyAST: DendronASTNode = proc.parse(
+      maybeNote.body
+    ) as DendronASTNode;
+
     const parsedLine = proc.parse(line);
     let targetHeader: Heading | undefined;
+    let targetIndex: number | undefined;
     // Find the first occurring heading node in selected line.
     // This should be our target.
-    visit(parsedLine, [DendronASTTypes.HEADING], (heading: Heading) => {
+    visit(parsedLine, [DendronASTTypes.HEADING], (heading: Heading, index) => {
       targetHeader = heading;
+      targetIndex = index;
       return false;
     });
-    if (!targetHeader) {
+    if (!targetHeader || _.isUndefined(targetIndex)) {
       throw this.headerNotSelectedError;
     }
-    return { proc, origin: maybeNote, targetHeader };
+
+    const resp = MdastUtils.findHeader({
+      nodes: bodyAST.children,
+      match: targetHeader,
+    });
+    if (!resp) {
+      throw Error("did not find header");
+    }
+    return {
+      proc,
+      origin: maybeNote,
+      targetHeader,
+      targetHeaderIndex: resp.index,
+    };
   }
 
   /**
@@ -162,7 +195,7 @@ export class MoveHeaderCommand extends BasicCommand<
       title: "Select note to move header to",
       placeholder: "note",
       provider: lookupProvider,
-      initialValue: opts?.initialValue,
+      initialValue: NotePickerUtils.getInitialValueFromOpenEditor(),
       nonInteractive: opts?.nonInteractive,
     });
     return lookupController;
@@ -173,7 +206,7 @@ export class MoveHeaderCommand extends BasicCommand<
    * @param opts
    * @returns
    */
-  prepareDestination(opts: {
+  async prepareDestination(opts: {
     engine: IEngineAPIService;
     quickpick: DendronQuickPickerV2;
     selectedItems: readonly NoteQuickInput[];
@@ -186,17 +219,13 @@ export class MoveHeaderCommand extends BasicCommand<
       dest = undefined;
     } else {
       const selected = selectedItems[0];
-      const isCreateNew = PickerUtilsV2.isCreateNewNotePick(selected);
+      const isCreateNew = PickerUtilsV2.isCreateNewNotePicked(selected);
       if (isCreateNew) {
         // check if we really want to create a new note.
         // if a user selects a vault in the picker that
         // already has the note, we should not create a new one.
         const fname = selected.fname;
-        const maybeNote = NoteUtils.getNoteByFnameFromEngine({
-          fname,
-          engine,
-          vault, // this is the vault selected from the vault picker
-        });
+        const maybeNote = (await engine.findNotes({ fname, vault }))[0];
         if (_.isUndefined(maybeNote)) {
           dest = NoteUtils.create({ fname, vault });
         } else {
@@ -212,13 +241,15 @@ export class MoveHeaderCommand extends BasicCommand<
   async gatherInputs(opts: CommandInput): Promise<CommandOpts | undefined> {
     // validate and process input
     const engine = ExtensionProvider.getEngine();
-    const { proc, origin, targetHeader } = this.validateAndProcessInput(engine);
+    const { proc, origin, targetHeader, targetHeaderIndex } =
+      await this.validateAndProcessInput(engine);
 
     // extract nodes that need to be moved
     const originTree = proc.parse(origin.body);
     const nodesToMove = RemarkUtils.extractHeaderBlock(
       originTree,
-      targetHeader
+      targetHeader.depth,
+      targetHeaderIndex
     );
 
     if (nodesToMove.length === 0) {
@@ -233,14 +264,15 @@ export class MoveHeaderCommand extends BasicCommand<
     const lc =
       ExtensionProvider.getExtension().lookupControllerFactory.create(lcOpts);
     return new Promise((resolve) => {
+      let disposable: Disposable;
       NoteLookupProviderUtils.subscribe({
         id: this.key,
         controller: lc,
         logger: this.L,
-        onDone: (event: HistoryEvent) => {
+        onDone: async (event: HistoryEvent) => {
           const data = event.data as NoteLookupProviderSuccessResp;
           const quickpick: DendronQuickPickerV2 = lc.quickPick;
-          const dest = this.prepareDestination({
+          const dest = await this.prepareDestination({
             engine,
             quickpick,
             selectedItems: data.selectedItems,
@@ -251,9 +283,25 @@ export class MoveHeaderCommand extends BasicCommand<
             nodesToMove,
             engine,
           });
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
       this.promptForDestination(lc, opts);
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
+      });
     });
   }
 
@@ -280,9 +328,7 @@ export class MoveHeaderCommand extends BasicCommand<
 
     // add the stringified blocks to destination note body
     dest.body = `${dest.body}\n\n${destContentToAppend}`;
-    await engine.writeNote(dest, {
-      updateExisting: true,
-    });
+    await engine.writeNote(dest);
   }
 
   /**
@@ -319,52 +365,15 @@ export class MoveHeaderCommand extends BasicCommand<
    * @param engine
    * @returns note
    */
-  private getNoteByLocation(
+  private async getNoteByLocation(
     location: Location,
     engine: IEngineAPIService
-  ): NoteProps | undefined {
+  ): Promise<NoteProps | undefined> {
     const fsPath = location.uri.fsPath;
     const fname = NoteUtils.normalizeFname(path.basename(fsPath));
 
     const vault = ExtensionProvider.getWSUtils().getVaultFromUri(location.uri);
-    const note = NoteUtils.getNoteByFnameFromEngine({
-      fname,
-      engine,
-      vault,
-    });
-    return note;
-  }
-
-  /**
-   * Helper for {@link MoveHeaderCommand.updateReferences}
-   * Given a {@link FoundRefT} and a list of anchor names,
-   * check if ref contains an anchor name to update.
-   * @param ref
-   * @param anchorNamesToUpdate
-   * @returns
-   */
-  private hasAnchorsToUpdate(ref: FoundRefT, anchorNamesToUpdate: string[]) {
-    const matchText = ref.matchText;
-    const wikiLinkRegEx = /\[\[(?<text>.+?)\]\]/;
-
-    const wikiLinkMatch = wikiLinkRegEx.exec(matchText);
-
-    if (wikiLinkMatch && wikiLinkMatch.groups?.text) {
-      let processed = wikiLinkMatch.groups.text;
-      if (processed.includes("|")) {
-        const [_alias, link] = processed.split("|");
-        processed = link;
-      }
-
-      if (processed.includes("#")) {
-        const [_fname, anchor] = processed.split("#");
-        return anchorNamesToUpdate.includes(anchor);
-      } else {
-        return false;
-      }
-    } else {
-      return false;
-    }
+    return (await engine.findNotes({ fname, vault }))[0];
   }
 
   /**
@@ -380,13 +389,13 @@ export class MoveHeaderCommand extends BasicCommand<
    */
   private findLinksToUpdate(
     note: NoteProps,
-    engine: IEngineAPIService,
     origin: NoteProps,
-    anchorNamesToUpdate: string[]
+    anchorNamesToUpdate: string[],
+    config: IntermediateDendronConfig
   ) {
-    const links = LinkUtils.findLinks({
+    const links = LinkUtils.findLinksFromBody({
       note,
-      engine,
+      config,
     }).filter((link) => {
       return (
         link.to?.fname?.toLowerCase() === origin.fname.toLowerCase() &&
@@ -417,21 +426,18 @@ export class MoveHeaderCommand extends BasicCommand<
    * @param dest Note that was the destination of move header commnad
    * @returns
    */
-  updateLinksInNote(opts: {
+  async updateLinksInNote(opts: {
     note: NoteProps;
     engine: IEngineAPIService;
     linksToUpdate: DLink[];
     dest: NoteProps;
   }) {
     const { note, engine, linksToUpdate, dest } = opts;
+    const notesWithSameName = await engine.findNotesMeta({ fname: dest.fname });
     return _.reduce(
       linksToUpdate,
       (note: NoteProps, linkToUpdate: DLink) => {
         const oldLink = LinkUtils.dlink2DNoteLink(linkToUpdate);
-        const notesWithSameName = NoteUtils.getNotesByFnameFromEngine({
-          fname: dest.fname,
-          engine,
-        });
 
         // original link had vault prefix?
         //   keep it
@@ -479,43 +485,56 @@ export class MoveHeaderCommand extends BasicCommand<
     engine: IEngineAPIService,
     origin: NoteProps,
     dest: NoteProps
-  ): Promise<NoteProps[]> {
-    const updated: NoteProps[] = [];
-    const refsToProcess = foundReferences
-      .filter((ref) => !ref.isCandidate)
-      .filter((ref) => this.hasAnchorsToUpdate(ref, anchorNamesToUpdate))
-      .map((ref) => this.getNoteByLocation(ref.location, engine))
-      .filter((note) => note !== undefined);
+  ): Promise<NoteChangeEntry[]> {
+    let noteChangeEntries: NoteChangeEntry[] = [];
+    const ctx = `${this.key}:updateReferences`;
+    const refsToProcess = (
+      await Promise.all(
+        foundReferences
+          .filter((ref) => !ref.isCandidate)
+          .filter((ref) => hasAnchorsToUpdate(ref, anchorNamesToUpdate))
+          .map((ref) => this.getNoteByLocation(ref.location, engine))
+      )
+    ).filter(isNotUndefined);
+    const config = DConfig.readConfigSync(engine.wsRoot);
 
     await asyncLoopOneAtATime(refsToProcess, async (note) => {
-      const vaultPath = vault2Path({
-        vault: note!.vault,
-        wsRoot: engine.wsRoot,
-      });
-      const _note = file2Note(
-        path.join(vaultPath, note!.fname + ".md"),
-        note!.vault
-      );
-      const linksToUpdate = this.findLinksToUpdate(
-        _note,
-        engine,
-        origin,
-        anchorNamesToUpdate
-      );
-      const modifiedNote = this.updateLinksInNote({
-        note: _note,
-        engine,
-        linksToUpdate,
-        dest,
-      });
-      note!.body = modifiedNote.body;
-      const writeResp = await engine.writeNote(note!, {
-        updateExisting: true,
-      });
-      updated.push(writeResp.data[0].note);
+      try {
+        const vaultPath = vault2Path({
+          vault: note.vault,
+          wsRoot: engine.wsRoot,
+        });
+        const resp = file2Note(
+          path.join(vaultPath, note.fname + ".md"),
+          note!.vault
+        );
+        if (ErrorUtils.isErrorResp(resp)) {
+          throw new Error();
+        }
+        const _note = resp.data;
+        const linksToUpdate = this.findLinksToUpdate(
+          _note,
+          origin,
+          anchorNamesToUpdate,
+          config
+        );
+        const modifiedNote = await this.updateLinksInNote({
+          note: _note,
+          engine,
+          linksToUpdate,
+          dest,
+        });
+        note.body = modifiedNote.body;
+        const writeResp = await engine.writeNote(note);
+        if (writeResp.data) {
+          noteChangeEntries = noteChangeEntries.concat(writeResp.data);
+        }
+      } catch (error) {
+        // TODO: should notify which one we failed during update.
+        this.L.error({ ctx, error });
+      }
     });
-
-    return updated;
+    return noteChangeEntries;
   }
 
   /**
@@ -546,9 +565,7 @@ export class MoveHeaderCommand extends BasicCommand<
 
     origin.body = modifiedOriginContent;
 
-    await engine.writeNote(origin, {
-      updateExisting: true,
-    });
+    await engine.writeNote(origin);
 
     return modifiedOriginContent;
   }
@@ -597,12 +614,82 @@ export class MoveHeaderCommand extends BasicCommand<
       origin,
       dest
     );
-    return { ...opts, updated };
+
+    return { ...opts, changed: updated };
   }
 
-  addAnalyticsPayload(_opts?: CommandOpts, out?: CommandOutput) {
-    return {
-      updatedCount: out?.updated.length || 0,
+  trackProxyMetrics({
+    out,
+    noteChangeEntryCounts,
+  }: {
+    out: CommandOutput;
+    noteChangeEntryCounts: {
+      createdCount: number;
+      deletedCount: number;
+      updatedCount: number;
     };
+  }) {
+    const extension = ExtensionProvider.getExtension();
+    const engine = extension.getEngine();
+    const { vaults } = engine;
+
+    // only look at origin note
+    const { origin } = out;
+
+    const headers = _.toArray(origin.anchors).filter((anchor) => {
+      return anchor !== undefined && anchor.type === "header";
+    }) as DNoteHeaderAnchor[];
+
+    const numOriginHeaders = headers.length;
+    const originHeaderDepths = headers.map((header) => header.depth);
+    const maxOriginHeaderDepth = _.max(originHeaderDepths);
+    const meanOriginHeaderDepth = _.mean(originHeaderDepths);
+    const movedHeaders = out.nodesToMove.filter((node) => {
+      return node.type === "heading";
+    }) as Heading[];
+    const numMovedHeaders = movedHeaders.length;
+    const movedHeaderDepths = movedHeaders.map((header) => header.depth);
+    const maxMovedHeaderDepth = _.max(movedHeaderDepths);
+    const meanMovedHeaderDepth = _.mean(movedHeaderDepths);
+
+    ProxyMetricUtils.trackRefactoringProxyMetric({
+      props: {
+        command: this.key,
+        numVaults: vaults.length,
+        traits: origin.traits || [],
+        numChildren: origin.children.length,
+        numLinks: origin.links.length,
+        numChars: origin.body.length,
+        noteDepth: DNodeUtils.getDepth(origin),
+      },
+      extra: {
+        ...noteChangeEntryCounts,
+        numOriginHeaders,
+        maxOriginHeaderDepth,
+        meanOriginHeaderDepth,
+        numMovedHeaders,
+        maxMovedHeaderDepth,
+        meanMovedHeaderDepth,
+      },
+    });
+  }
+
+  addAnalyticsPayload(_opts: CommandOpts, out: CommandOutput) {
+    const noteChangeEntryCounts =
+      out !== undefined
+        ? { ...extractNoteChangeEntryCounts(out.changed) }
+        : {
+            createdCount: 0,
+            updatedCount: 0,
+            deletedCount: 0,
+          };
+
+    try {
+      this.trackProxyMetrics({ out, noteChangeEntryCounts });
+    } catch (error) {
+      this.L.error({ error });
+    }
+
+    return noteChangeEntryCounts;
   }
 }

@@ -1,4 +1,5 @@
 import {
+  BacklinkPanelSortOrder,
   FOLDERS,
   GraphThemeEnum,
   Time,
@@ -23,6 +24,8 @@ export enum ShowcaseEntry {
   GraphPanel = "GraphPanel",
   BacklinksPanelHover = "BacklinksPanelHover",
   ObsidianImport = "ObsidianImport",
+  SettingsUI = "SettingsUI",
+  CreateScratchNoteKeybindingTip = "CreateScratchNoteKeybindingTip",
 }
 
 /**
@@ -38,14 +41,8 @@ export enum PriorTools {
   Obsidian = "Obsidian",
   Evernote = "Evernote",
   GoogleKeep = "Google Keep",
+  Confluence = "Confluence",
   Other = "Other",
-}
-
-export enum BacklinkPanelSortOrder {
-  /** Using path sorted so order with shallow first = true */
-  PathNames = "PathNames",
-
-  LastUpdated = "LastUpdated",
 }
 
 type Metadata = Partial<{
@@ -53,6 +50,10 @@ type Metadata = Partial<{
    * When was dendron first installed
    */
   firstInstall: number;
+  /**
+   * What was the version of the first install?
+   */
+  firstInstallVersion: string;
   /**
    * When the first workspace was initialized
    */
@@ -146,6 +147,18 @@ type Metadata = Partial<{
    * level set by user for local graph view and graph panel
    */
   graphDepth: number;
+  /**
+   * graph panel show backlinks
+   */
+  graphPanelShowBacklinks: boolean;
+  /**
+   * graph panel show outward links
+   */
+  graphPanelShowOutwardLinks: boolean;
+  /**
+   * graph panel show hierarchical edges
+   */
+  graphPanelShowHierarchy: boolean;
 }>;
 
 export enum InactvieUserMsgStatusEnum {
@@ -256,6 +269,18 @@ export class MetadataService {
     return this.getMeta().graphDepth;
   }
 
+  get graphPanelShowBacklinks(): boolean | undefined {
+    return this.getMeta().graphPanelShowBacklinks;
+  }
+
+  get graphPanelShowOutwardLinks(): boolean | undefined {
+    return this.getMeta().graphPanelShowOutwardLinks;
+  }
+
+  get graphPanelShowHierarchy(): boolean | undefined {
+    return this.getMeta().graphPanelShowHierarchy;
+  }
+
   setMeta(key: keyof Metadata, value: any) {
     const stateFromFile = this.getMeta();
     stateFromFile[key] = value;
@@ -268,6 +293,10 @@ export class MetadataService {
     return this.getMeta().v100ReleaseMessageShown;
   }
 
+  get firstInstallVersion(): string | undefined {
+    return this.getMeta().firstInstallVersion;
+  }
+
   /**
    * Set first install logic
    *  ^o4y7ijuvi5nv
@@ -275,6 +304,10 @@ export class MetadataService {
   setInitialInstall(time?: number) {
     time ||= Time.now().toSeconds();
     this.setMeta("firstInstall", time);
+  }
+
+  setInitialInstallVersion(version: string) {
+    this.setMeta("firstInstallVersion", version);
   }
 
   setFirstWsInitialize() {
@@ -369,6 +402,17 @@ export class MetadataService {
     this.setMeta("v100ReleaseMessageShown", hasShown);
   }
 
+  set graphPanelShowBacklinks(showBacklinks: boolean | undefined) {
+    this.setMeta("graphPanelShowBacklinks", showBacklinks);
+  }
+
+  set graphPanelShowOutwardLinks(showOutwardLinks: boolean | undefined) {
+    this.setMeta("graphPanelShowOutwardLinks", showOutwardLinks);
+  }
+
+  set graphPanelShowHierarchy(showHierarchy: boolean | undefined) {
+    this.setMeta("graphPanelShowHierarchy", showHierarchy);
+  }
   // Add a single path to recent workspaces. Recent workspaces acts like a FIFO
   // queue
   addToRecentWorkspaces(path: string) {

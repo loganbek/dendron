@@ -4,9 +4,11 @@ import {
   GraphThemeEnum,
   GraphViewMessageEnum,
   LookupViewMessageEnum,
+  NoteViewMessageEnum,
   NoteUtils,
   OnDidChangeActiveTextEditorMsg,
   SeedBrowserMessageType,
+  OnUpdatePreviewHTMLMsg,
 } from "@dendronhq/common-all";
 import {
   combinedStore,
@@ -20,11 +22,13 @@ import {
   setLogLevel,
 } from "@dendronhq/common-frontend";
 import { Layout } from "antd";
+import _ from "lodash";
 import React from "react";
 import { useWorkspaceProps } from "../hooks";
-import "../styles/scss/main.scss";
+import "../styles/scss/main-plugin.scss";
 import { DendronComponent } from "../types";
 import { postVSCodeMessage, useVSCodeMessage } from "../utils/vscode";
+
 const { Content } = Layout;
 
 const { useEngineAppSelector } = engineHooks;
@@ -93,6 +97,20 @@ function DendronVSCodeApp({ Component }: { Component: DendronComponent }) {
         ideDispatch(ideSlice.actions.setNoteActive(noteToSetActive));
         logger.info({ ctx, msg: "setNoteActive:post" });
         break;
+      case DMessageEnum.ON_UPDATE_PREVIEW_HTML:
+        logger.info({ ctx, msg: "onUpdatePreviewHTML:pre" });
+
+        const updatePreviewMsg = msg as OnUpdatePreviewHTMLMsg;
+        ideDispatch(
+          ideSlice.actions.setPreviewHTML(updatePreviewMsg.data.html)
+        );
+        const noteToActivate = updatePreviewMsg.data.note;
+        ideDispatch(ideSlice.actions.setNoteActive(noteToActivate));
+        logger.info({
+          ctx,
+          msg: `onUpdatePreviewHTML:post`,
+        });
+        break;
       case LookupViewMessageEnum.onUpdate:
         logger.info({ ctx, msg: "refreshLookup:pre" });
         ideDispatch(ideSlice.actions.refreshLookup(msg.data.payload));
@@ -100,7 +118,14 @@ function DendronVSCodeApp({ Component }: { Component: DendronComponent }) {
         break;
       case GraphViewMessageEnum.onGraphLoad: {
         const cmsg = msg;
-        const { styles, graphTheme, graphDepth } = cmsg.data;
+        const {
+          styles,
+          graphTheme,
+          graphDepth,
+          showBacklinks,
+          showOutwardLinks,
+          showHierarchy,
+        } = cmsg.data;
         logger.info({ ctx, styles, msg: "styles" });
         if (styles) {
           ideDispatch(ideSlice.actions.setGraphStyles(styles));
@@ -116,6 +141,9 @@ function DendronVSCodeApp({ Component }: { Component: DendronComponent }) {
           logger.info({ ctx, graphDepth, msg: "default graph depth" });
           ideDispatch(ideSlice.actions.setGraphDepth(graphDepth));
         }
+        ideDispatch(ideSlice.actions.setShowBacklinks(showBacklinks));
+        ideDispatch(ideSlice.actions.setShowOutwardLinks(showOutwardLinks));
+        ideDispatch(ideSlice.actions.setShowHierarchy(showHierarchy));
         break;
       }
       case SeedBrowserMessageType.onSeedStateChange: {
@@ -130,6 +158,34 @@ function DendronVSCodeApp({ Component }: { Component: DendronComponent }) {
         const { graphDepth } = cmsg.data;
         logger.info({ ctx, graphDepth, msg: "onGraphDepthChange" });
         ideDispatch(ideSlice.actions.setGraphDepth(graphDepth));
+        break;
+      }
+      case GraphViewMessageEnum.toggleGraphEdges: {
+        const cmsg = msg;
+        const { showBacklinks, showOutwardLinks, showHierarchy } = cmsg.data;
+        if (!_.isUndefined(showBacklinks)) {
+          logger.info({ ctx, showBacklinks, msg: "showBacklinks" });
+          ideDispatch(ideSlice.actions.setShowBacklinks(showBacklinks));
+        }
+        if (!_.isUndefined(showOutwardLinks)) {
+          logger.info({ ctx, showOutwardLinks, msg: "showOutwardLinks" });
+          ideDispatch(ideSlice.actions.setShowOutwardLinks(showOutwardLinks));
+        }
+
+        if (!_.isUndefined(showHierarchy)) {
+          logger.info({ ctx, showHierarchy, msg: "showHierarchy" });
+          ideDispatch(ideSlice.actions.setShowHierarchy(showHierarchy));
+        }
+        break;
+      }
+      case NoteViewMessageEnum.onLock: {
+        logger.info({ ctx, msg: "onLock" });
+        ideDispatch(ideSlice.actions.setLock(true));
+        break;
+      }
+      case NoteViewMessageEnum.onUnlock: {
+        logger.info({ ctx, msg: "onUnlock" });
+        ideDispatch(ideSlice.actions.setLock(false));
         break;
       }
       default:
@@ -149,7 +205,11 @@ export type DendronAppProps = {
 function DendronApp(props: DendronAppProps) {
   return (
     <Provider store={combinedStore}>
-      <Layout style={{ padding: props.opts.padding }}>
+      <Layout
+        style={{
+          padding: props.opts.padding,
+        }}
+      >
         <Content>
           <DendronVSCodeApp {...props} />
         </Content>

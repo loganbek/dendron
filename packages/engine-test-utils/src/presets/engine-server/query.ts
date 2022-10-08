@@ -1,4 +1,4 @@
-import { DNodeUtils, SchemaUtils } from "@dendronhq/common-all";
+import { DNodeUtils } from "@dendronhq/common-all";
 import {
   TestPresetEntryV4,
   SCHEMA_PRESETS_V4,
@@ -8,36 +8,12 @@ import _ from "lodash";
 import { setupBasic, setupEmpty } from "./utils";
 
 const SCHEMAS = {
-  // TODO: multi-vault, this gets overwritten
-  // EMPTY_QS: new TestPresetEntryV4(
-  //   async ({ vaults, engine, wsRoot }) => {
-  //     const vault = vaults[0];
-  //     const schemas = engine.schemas;
-  //     const { data } = await engine.querySchema("");
-  //
-  //     const expectedNote = SchemaUtils.getSchemaModuleByFnameV4({
-  //       fname: "root",
-  //       schemas,
-  //       wsRoot,
-  //       vault,
-  //     });
-  //     return [
-  //       {
-  //         actual: data[0],
-  //         expected: expectedNote,
-  //       },
-  //     ];
-  //   },
-  //   {
-  //     preSetupHook: setupBasic,
-  //   }
-  // ),
   STAR_QUERY: new TestPresetEntryV4(
     async ({ engine }) => {
       const { data } = await engine.querySchema("*");
       return [
         {
-          actual: data.length,
+          actual: data!.length,
           expected: 2,
         },
       ];
@@ -47,17 +23,10 @@ const SCHEMAS = {
     }
   ),
   SIMPLE: new TestPresetEntryV4(
-    async ({ engine, vaults, wsRoot }) => {
-      const schemas = engine.schemas;
-      const vault = vaults[0];
+    async ({ engine }) => {
       const sid = SCHEMA_PRESETS_V4.SCHEMA_SIMPLE.fname;
       const { data } = await engine.querySchema(sid);
-      const expectedSchema = SchemaUtils.getSchemaModuleByFnameV4({
-        fname: sid,
-        wsRoot,
-        schemas,
-        vault,
-      });
+      const expectedSchema = (await engine.getSchema(sid)).data!;
       const fooSchema = _.find(data, { fname: sid });
       return [
         {
@@ -129,7 +98,7 @@ const NOTES = {
       });
       return [
         {
-          actual: data.length,
+          actual: data?.length,
           expected: 4,
         },
       ];
@@ -155,11 +124,11 @@ const NOTES = {
       )[0];
       return [
         {
-          actual: data[0],
+          actual: data ? data[0] : undefined,
           expected: expectedNote,
         },
         {
-          actual: data[0].schema,
+          actual: data ? data[0].schema : undefined,
           expected: {
             moduleId: SCHEMA_PRESETS_V4.SCHEMA_SIMPLE.fname,
             schemaId: SCHEMA_PRESETS_V4.SCHEMA_SIMPLE.fname,

@@ -8,29 +8,34 @@ import {
   DendronASTTypes,
   HashTag,
   MDUtilsV5,
-  ProcMode,
   UnistNode,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
-import { ConfigUtils, NoteProps } from "@dendronhq/common-all";
+import {
+  ConfigUtils,
+  NoteDictsUtils,
+  NoteProps,
+  ProcFlavor,
+} from "@dendronhq/common-all";
 import { runEngineTestV5 } from "../../../engine";
 import { ENGINE_HOOKS } from "../../../presets";
 import {
   checkNotInVFile,
   checkVFile,
+  createProcCompileTests,
   createProcForTest,
   createProcTests,
   ProcTests,
 } from "./utils";
 import { TestConfigUtils } from "../../..";
 import { TestUnifiedUtils } from "../../../utils";
+import { getOpts, runTestCases } from "./v5/utils";
+import { DConfig } from "@dendronhq/common-server";
 
 const { getDescendantNode } = TestUnifiedUtils;
 
 function proc() {
-  return MDUtilsV5.procRehypeParse({
-    mode: ProcMode.NO_DATA,
-  });
+  return MDUtilsV5.procRemarkParseNoData({}, { dest: DendronASTDest.HTML });
 }
 
 function runAllTests(opts: { name: string; testCases: ProcTests[] }) {
@@ -94,7 +99,7 @@ describe("hashtag", () => {
       );
     });
 
-    test("doesn't parse trailing punctuation", () => {
+    test("doesn't parse trailing punctuation except period (.)", () => {
       const resp1 = proc().parse(
         "Dolorem vero sed sapiente #dolores. Et quam id maxime et ratione."
       );
@@ -102,7 +107,7 @@ describe("hashtag", () => {
         DendronASTTypes.HASHTAG
       );
       // @ts-ignore
-      expect(getDescendantNode(expect, resp1, 0, 1).value).toEqual("#dolores");
+      expect(getDescendantNode(expect, resp1, 0, 1).value).toEqual("#dolores.");
 
       const resp2 = proc().parse(
         "Dolorem vero sed sapiente #dolores, et quam id maxime et ratione."
@@ -145,13 +150,69 @@ describe("hashtag", () => {
   describe("rendering", () => {
     const hashtag = "#my-hash.tag0";
 
+    describe("WHEN hashtag with prefix", () => {
+      runTestCases(
+        createProcCompileTests({
+          name: "THEN hashtag has prefix",
+          fname: "one",
+          setup: async (opts) => {
+            const { proc } = getOpts(opts);
+
+            const noteCacheForRenderDict = NoteDictsUtils.createNoteDicts([
+              await NoteTestUtilsV4.createNote({
+                fname: "tags.my-hash.tag0",
+                vault: opts.vaults[0],
+                wsRoot: opts.wsRoot,
+              }),
+            ]);
+
+            MDUtilsV5.setProcData(proc, { noteCacheForRenderDict });
+            const resp = await proc.process(hashtag);
+            return { resp, proc };
+          },
+          verify: {
+            [DendronASTDest.HTML]: {
+              [ProcFlavor.PUBLISHING]: async ({ extra }) => {
+                const { resp } = extra;
+                await checkVFile(resp, `href="/foo/notes/tags.my-hash.tag0"`);
+              },
+            },
+          },
+          preSetupHook: async (opts: any) => {
+            const { wsRoot, vaults } = opts;
+            const vault = vaults[0];
+            await ENGINE_HOOKS.setupBasic(opts);
+            await NoteTestUtilsV4.createNote({
+              fname: "one",
+              vault,
+              wsRoot,
+              body: hashtag,
+            });
+            await NoteTestUtilsV4.createNote({
+              fname: "tags.my-hash.tag0",
+              vault,
+              wsRoot,
+            });
+            TestConfigUtils.withConfig(
+              (config) => {
+                ConfigUtils.setPublishProp(config, "assetsPrefix", "/foo");
+                return config;
+              },
+              { wsRoot: opts.wsRoot }
+            );
+          },
+        })
+      );
+    });
+
     const SIMPLE = createProcTests({
       name: "simple",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(hashtag);
         return { resp };
@@ -181,18 +242,6 @@ describe("hashtag", () => {
             },
           ];
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          return [
-            {
-              actual: await AssertUtils.assertInString({
-                body: resp.toString(),
-                match: [`[${hashtag}](tags.my-hash.tag0.md)`],
-              }),
-              expected: true,
-            },
-          ];
-        },
         [DendronASTDest.HTML]: async ({ extra }) => {
           const { resp } = extra;
           await checkVFile(
@@ -204,15 +253,17 @@ describe("hashtag", () => {
       preSetupHook: ENGINE_HOOKS.setupBasic,
     });
 
-    describe("colors", () => {
+    // TODO: Re-enable color test after color following ancestors in tags function is added back.
+    describe.skip("colors", () => {
       test("with color", async () => {
         let note: NoteProps;
         await runEngineTestV5(
-          async ({ engine }) => {
-            const proc = createProcForTest({
+          async ({ engine, wsRoot }) => {
+            const proc = await createProcForTest({
               engine,
               dest: DendronASTDest.HTML,
               vault: note.vault,
+              config: DConfig.readConfigSync(wsRoot),
             });
             const resp = await proc.process(`#color`);
             await checkVFile(
@@ -237,11 +288,12 @@ describe("hashtag", () => {
       test("when enableRandomlyGeneratedColors is false, only uses explicit colors", async () => {
         let note: NoteProps;
         await runEngineTestV5(
-          async ({ engine }) => {
-            const proc = createProcForTest({
+          async ({ engine, wsRoot }) => {
+            const proc = await createProcForTest({
               engine,
               dest: DendronASTDest.HTML,
               vault: note.vault,
+              config: DConfig.readConfigSync(wsRoot),
             });
             const resp = await proc.process(`#color #uncolored`);
             await checkVFile(
@@ -283,11 +335,12 @@ describe("hashtag", () => {
       test("with color cascading from parent, self missing", async () => {
         let note: NoteProps;
         await runEngineTestV5(
-          async ({ engine }) => {
-            const proc = createProcForTest({
+          async ({ engine, wsRoot }) => {
+            const proc = await createProcForTest({
               engine,
               dest: DendronASTDest.HTML,
               vault: note.vault,
+              config: DConfig.readConfigSync(wsRoot),
             });
             const resp = await proc.process(`#parent.color`);
             await checkVFile(
@@ -312,11 +365,12 @@ describe("hashtag", () => {
       test("with color cascading from parent, self exists", async () => {
         let note: NoteProps;
         await runEngineTestV5(
-          async ({ engine }) => {
-            const proc = createProcForTest({
+          async ({ engine, wsRoot }) => {
+            const proc = await createProcForTest({
               engine,
               dest: DendronASTDest.HTML,
               vault: note.vault,
+              config: DConfig.readConfigSync(wsRoot),
             });
             const resp = await proc.process(`#parent.color`);
             await checkVFile(
@@ -346,11 +400,12 @@ describe("hashtag", () => {
       test("overrides color cascading from parent", async () => {
         let note: NoteProps;
         await runEngineTestV5(
-          async ({ engine }) => {
-            const proc = createProcForTest({
+          async ({ engine, wsRoot }) => {
+            const proc = await createProcForTest({
               engine,
               dest: DendronASTDest.HTML,
               vault: note.vault,
+              config: DConfig.readConfigSync(wsRoot),
             });
             const resp = await proc.process(`#parent.color`);
             await checkVFile(
@@ -381,11 +436,12 @@ describe("hashtag", () => {
 
     const INSIDE_LINK = createProcTests({
       name: "inside a link",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(
           "[#dendron](https://twitter.com/hashtag/dendron)"
@@ -408,12 +464,17 @@ describe("hashtag", () => {
     describe("WHEN disabled in config", () => {
       test("THEN hashtags don't get parsed or processed", async () => {
         await runEngineTestV5(
-          async ({ engine, vaults }) => {
+          async ({ engine, wsRoot, vaults }) => {
             const proc = MDUtilsV5.procRehypeFull(
               {
-                engine,
+                noteToRender: (
+                  await engine.findNotesMeta({
+                    fname: "root",
+                    vault: vaults[0],
+                  })
+                )[0]!,
                 vault: vaults[0],
-                config: engine.config,
+                config: DConfig.readConfigSync(wsRoot),
                 fname: "root",
               },
               {}

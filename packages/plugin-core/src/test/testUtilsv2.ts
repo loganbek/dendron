@@ -1,6 +1,7 @@
 import {
   DNodeUtils,
   DVault,
+  ErrorUtils,
   NoteProps,
   VaultUtils,
   WorkspaceOpts,
@@ -23,9 +24,10 @@ import {
 } from "vscode";
 import { SetupWorkspaceOpts } from "../commands/SetupWorkspace";
 import { CONFIG } from "../constants";
-import { DendronExtension, getDWorkspace } from "../workspace";
+import { DendronExtension } from "../workspace";
 import { createMockConfig } from "./testUtils";
 import { _activate } from "../_extension";
+import { ExtensionProvider } from "../ExtensionProvider";
 
 export type SetupCodeConfigurationV2 = {
   configOverride?: { [key: string]: any };
@@ -54,6 +56,7 @@ export function genDefaultSettings() {
       unwantedRecommendations: [
         "dendron.dendron-markdown-links",
         "dendron.dendron-markdown-notes",
+        "dendron.dendron-markdown-preview-enhanced",
         "shd101wyy.markdown-preview-enhanced",
         "kortina.vscode-markdown-notes",
         "mushan.vscode-paste-image",
@@ -122,13 +125,17 @@ export async function resetCodeWorkspace() {
 export const getNoteFromTextEditor = (): NoteProps => {
   const txtPath = window.activeTextEditor?.document.uri.fsPath as string;
   const vault = { fsPath: path.dirname(txtPath) };
+  const { wsRoot } = ExtensionProvider.getDWorkspace();
   const fullPath = DNodeUtils.getFullPath({
-    wsRoot: getDWorkspace().wsRoot,
+    wsRoot,
     vault,
     basename: path.basename(txtPath),
   });
-  const node = file2Note(fullPath, vault);
-  return node;
+  const resp = file2Note(fullPath, vault);
+  if (ErrorUtils.isErrorResp(resp)) {
+    throw resp.error;
+  }
+  return resp.data;
 };
 
 export class LocationTestUtils {

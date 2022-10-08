@@ -10,12 +10,12 @@ import {
   LINK_NAME_NO_SPACES,
   NoteLookupUtils,
   NoteProps,
-  NoteUtils,
+  NotePropsMeta,
   TAGS_HIERARCHY,
   USERS_HIERARCHY,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { getDurationMilliseconds } from "@dendronhq/common-server";
+import { DConfig, getDurationMilliseconds } from "@dendronhq/common-server";
 import {
   AnchorUtils,
   DendronASTDest,
@@ -27,7 +27,7 @@ import {
   ProcFlavor,
   UserTagUtils,
   USERTAG_REGEX_LOOSE,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import {
   CancellationToken,
@@ -46,7 +46,7 @@ import { ExtensionProvider } from "../ExtensionProvider";
 import { Logger } from "../logger";
 import { sentryReportingCallback } from "../utils/analytics";
 import { VSCodeUtils } from "../vsCodeUtils";
-import { DendronExtension, getDWorkspace, getExtension } from "../workspace";
+import { DendronExtension } from "../workspace";
 import { WSUtils } from "../WSUtils";
 
 function padWithZero(n: number): string {
@@ -100,7 +100,7 @@ const NOTE_AUTOCOMPLETEABLE_REGEX = new RegExp("" +
   "g"
 );
 
-function noteToCompletionItem({
+async function noteToCompletionItem({
   note,
   range,
   lblTransform,
@@ -110,12 +110,12 @@ function noteToCompletionItem({
   note: NoteProps;
   range: Range;
   lblTransform?: (note: NoteProps) => string;
-  insertTextTransform?: (note: NoteProps) => string;
+  insertTextTransform?: (note: NoteProps) => Promise<string>;
   sortTextTransform?: (note: NoteProps) => string | undefined;
-}): CompletionItem {
+}): Promise<CompletionItem> {
   const label = lblTransform ? lblTransform(note) : note.fname;
   const insertText = insertTextTransform
-    ? insertTextTransform(note)
+    ? await insertTextTransform(note)
     : note.fname;
   const sortText = sortTextTransform ? sortTextTransform(note) : undefined;
   const item: CompletionItem = {
@@ -162,13 +162,16 @@ async function provideCompletionsForTag({
     qsRaw,
     engine,
   });
-  return notes.map((note) =>
-    noteToCompletionItem({
-      note,
-      range,
-      lblTransform: (note) => `${note.fname.slice(prefix.length)}`,
-      insertTextTransform: (note) => `${note.fname.slice(prefix.length)}`,
-    })
+  return Promise.all(
+    notes.map((note) =>
+      noteToCompletionItem({
+        note,
+        range,
+        lblTransform: (note) => `${note.fname.slice(prefix.length)}`,
+        insertTextTransform: (note) =>
+          Promise.resolve(`${note.fname.slice(prefix.length)}`),
+      })
+    )
   );
 }
 
@@ -242,17 +245,10 @@ export const provideCompletionItems = sentryReportingCallback(
     const range = new Range(position.line, start, position.line, end);
 
     const engine = ExtensionProvider.getEngine();
-    const { notes, wsRoot } = engine;
+    const { wsRoot } = engine;
     let completionItems: CompletionItem[];
     const completionsIncomplete = true;
-    const currentVault = WSUtils.getNoteFromDocument(document)?.vault;
-    Logger.debug({
-      ctx,
-      range,
-      notesLength: notes.length,
-      currentVault,
-      wsRoot,
-    });
+    const currentVault = WSUtils.getVaultFromDocument(document);
 
     if (found?.groups?.hashTag) {
       completionItems = await provideCompletionsForTag({
@@ -277,7 +273,7 @@ export const provideCompletionItems = sentryReportingCallback(
       } else {
         qsRaw = "";
       }
-      const insertTextTransform = (note: NoteProps) => {
+      const insertTextTransform = async (note: NoteProps) => {
         let resp = note.fname;
         if (found?.groups?.noBracket !== undefined) {
           resp += "]]";
@@ -286,10 +282,9 @@ export const provideCompletionItems = sentryReportingCallback(
           currentVault &&
           !VaultUtils.isEqual(currentVault, note.vault, wsRoot)
         ) {
-          const sameNameNotes = NoteUtils.getNotesByFnameFromEngine({
-            fname: note.fname,
-            engine,
-          }).length;
+          const sameNameNotes = (
+            await engine.findNotesMeta({ fname: note.fname })
+          ).length;
           if (sameNameNotes > 1) {
             // There are multiple notes with the same name in multiple vaults,
             // and this note is in a different vault than the current note.
@@ -305,23 +300,25 @@ export const provideCompletionItems = sentryReportingCallback(
         engine,
       });
 
-      completionItems = notes.map((note) =>
-        noteToCompletionItem({
-          note,
-          range,
-          insertTextTransform,
-          sortTextTransform: (note) => {
-            if (
-              currentVault &&
-              !VaultUtils.isEqual(currentVault, note.vault, wsRoot)
-            ) {
-              // For notes from other vaults than the current note, sort them after notes from the current vault.
-              // x will get sorted after numbers, so these will appear after notes without x
-              return `x${note.fname}`;
-            }
-            return;
-          },
-        })
+      completionItems = await Promise.all(
+        notes.map((note) =>
+          noteToCompletionItem({
+            note,
+            range,
+            insertTextTransform,
+            sortTextTransform: (note) => {
+              if (
+                currentVault &&
+                !VaultUtils.isEqual(currentVault, note.vault, wsRoot)
+              ) {
+                // For notes from other vaults than the current note, sort them after notes from the current vault.
+                // x will get sorted after numbers, so these will appear after notes without x
+                return `x${note.fname}`;
+              }
+              return;
+            },
+          })
+        )
       );
     }
 
@@ -377,11 +374,7 @@ export const resolveCompletionItem = sentryReportingCallback(
       return;
     }
 
-    const note = NoteUtils.getNoteByFnameFromEngine({
-      fname,
-      vault,
-      engine,
-    });
+    const note = (await engine.findNotesMeta({ fname, vault }))[0];
 
     if (_.isUndefined(note)) {
       Logger.info({ ctx, msg: "note not found", fname, vault, wsRoot });
@@ -392,10 +385,12 @@ export const resolveCompletionItem = sentryReportingCallback(
       // Render a preview of this note
       const proc = MDUtilsV5.procRemarkFull(
         {
+          noteToRender: note,
           dest: DendronASTDest.MD_REGULAR,
-          engine,
           vault: note.vault,
           fname: note.fname,
+          config: DConfig.readConfigSync(engine.wsRoot, true),
+          wsRoot,
         },
         {
           flavor: ProcFlavor.HOVER_PREVIEW,
@@ -482,10 +477,10 @@ export async function provideBlockCompletionItems(
   Logger.debug({ ctx, found });
 
   const timestampStart = process.hrtime();
-  const engine = getDWorkspace().engine;
+  const engine = ExtensionProvider.getEngine();
 
   let otherFile = false;
-  let note: NoteProps | undefined;
+  let note: NotePropsMeta | undefined;
   if (found.groups?.note) {
     // This anchor will be to another note, e.g. [[note#
     // `groups.note` may have vault name, so let's try to parse that
@@ -498,15 +493,11 @@ export async function provideBlockCompletionItems(
       : undefined;
     // If we couldn't find the linked note, don't do anything
     if (_.isNull(link) || _.isUndefined(link.value)) return;
-    note = NoteUtils.getNotesByFnameFromEngine({
-      fname: link.value,
-      vault,
-      engine,
-    })[0];
+    note = (await engine.findNotesMeta({ fname: link.value, vault }))[0];
     otherFile = true;
   } else {
     // This anchor is to the same file, e.g. [[#
-    note = WSUtils.getNoteFromDocument(document);
+    note = await WSUtils.getNoteFromDocument(document);
   }
 
   if (_.isUndefined(note) || token?.isCancellationRequested) return;
@@ -538,9 +529,10 @@ export async function provideBlockCompletionItems(
     insertValueOnly = true;
   }
 
-  const blocks = await getExtension()
-    .getEngine()
-    .getNoteBlocks({ id: note.id, filterByAnchorType });
+  const blocks = await ExtensionProvider.getEngine().getNoteBlocks({
+    id: note.id,
+    filterByAnchorType,
+  });
   if (
     _.isUndefined(blocks.data) ||
     blocks.error?.severity === ERROR_SEVERITY.FATAL

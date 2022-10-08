@@ -18,6 +18,7 @@ import {
 } from "@dendronhq/common-all";
 import {
   assignJSONWithComment,
+  DConfig,
   note2File,
   readYAML,
   schemaModuleOpts2File,
@@ -32,7 +33,6 @@ import {
   PreSetupHookFunction,
 } from "@dendronhq/common-test-utils";
 import {
-  DConfig,
   DendronEngineClient,
   DendronEngineV2,
   Git,
@@ -65,7 +65,7 @@ import { Logger } from "../logger";
 import { StateService } from "../services/stateService";
 import { WorkspaceConfig } from "../settings";
 import { VSCodeUtils } from "../vsCodeUtils";
-import { DendronExtension, getDWorkspace } from "../workspace";
+import { DendronExtension } from "../workspace";
 import { BlankInitializer } from "../workspace/blankInitializer";
 import { WorkspaceInitFactory } from "../workspace/WorkspaceInitFactory";
 import { _activate } from "../_extension";
@@ -317,7 +317,7 @@ export async function runLegacySingleWorkspaceTest(
     skipMigrations: true,
     skipTreeView: true,
   });
-  const engine = getDWorkspace().engine;
+  const engine = ExtensionProvider.getEngine();
   await opts.onInit({ wsRoot, vaults, engine });
 
   cleanupVSCodeContextSubscriptions(opts.ctx!);
@@ -341,7 +341,7 @@ export async function runLegacyMultiWorkspaceTest(
       : true,
     skipTreeView: true,
   });
-  const engine = getDWorkspace().engine;
+  const engine = ExtensionProvider.getEngine();
   await opts.onInit({ wsRoot, vaults, engine });
 
   cleanupVSCodeContextSubscriptions(opts.ctx!);
@@ -425,14 +425,7 @@ export function stubSetupWorkspace({ wsRoot }: { wsRoot: string }) {
   };
 }
 
-class FakeEngine {
-  get notes() {
-    return getDWorkspace().engine.notes;
-  }
-  get schemas() {
-    return getDWorkspace().engine.schemas;
-  }
-}
+class FakeEngine {}
 
 type EngineOverride = {
   [P in keyof DendronEngineV2]: (opts: WorkspaceOpts) => DendronEngineV2[P];
@@ -512,7 +505,7 @@ export function runSuiteButSkipForWindows() {
  *   () => {
  *     test("THEN initializes correctly", (done) => {
  *       const { engine, _wsRoot, _vaults } = getDWorkspace();
- *       const testNote = engine.notes["foo"];
+ *       const testNote = await engine.getNote("foo").data!;
  *       expect(testNote).toBeTruthy();
  *       done();
  *     });
@@ -661,7 +654,7 @@ describeSingleWS.only = function (
   ...params: Parameters<typeof describeSingleWS>
 ) {
   describe.only("", () => {
-    describeMultiWS(...params);
+    describeSingleWS(...params);
   });
 };
 describeSingleWS.skip = function (
@@ -718,6 +711,8 @@ export function setupWorkspaceStubs(opts: {
 export function cleanupWorkspaceStubs(ctx: ExtensionContext): void {
   HistoryService.instance().clearSubscriptions();
   cleanupVSCodeContextSubscriptions(ctx);
+  const ext = ExtensionProvider.getExtension();
+  ext.deactivate();
   sinon.restore();
 }
 

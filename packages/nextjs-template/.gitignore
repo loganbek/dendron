@@ -41,10 +41,11 @@ public/themes
 local
 
 # generated
-robots.txt
 sitemap.xml
 public/*.html
 dist
 .env.production
 custom/*
 !custom/NoOp.tsx
+builds
+test-results/

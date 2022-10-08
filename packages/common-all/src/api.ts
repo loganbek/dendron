@@ -3,38 +3,38 @@ import _ from "lodash";
 import * as querystring from "qs";
 import {
   BulkWriteNotesOpts,
-  ConfigGetPayload,
-  ConfigWriteOpts,
-  DEngineDeleteSchemaPayload,
-  DEngineQuery,
   DNodeProps,
-  DVault,
-  EngineDeleteNotePayload,
-  EngineDeleteOptsV2,
+  EngineDeleteOpts,
   EngineInfoResp,
-  EngineUpdateNodesOptsV2,
   EngineWriteOptsV2,
-  NoteProps,
   RenameNoteOpts,
-  RenameNotePayload,
-  RespV2,
   SchemaModuleProps,
   WriteNoteResp,
 } from ".";
 import { ThemeTarget, ThemeType } from "./constants";
-import { DendronCompositeError, DendronError, IDendronError } from "./error";
+import { DendronCompositeError, DendronError } from "./error";
 import {
-  BulkWriteNoteResp,
-  DEngineInitPayload,
-  GetDecorationsPayload,
-  GetNoteAnchorsPayload,
-  GetNoteBlocksPayload,
-  GetNoteLinksPayload,
-  NoteQueryResp,
+  BulkWriteNotesResp,
+  DeleteNoteResp,
+  DeleteSchemaResp,
+  DEngineInitResp,
+  EngineSchemaWriteOpts,
+  FindNotesResp,
+  GetDecorationsResp,
+  GetNoteBlocksResp,
+  GetSchemaResp,
+  IntermediateDendronConfig,
+  QueryNotesResp,
+  QuerySchemaResp,
+  RenameNoteResp,
   RenderNoteOpts,
-  RenderNotePayload,
+  RenderNoteResp,
+  RespV3,
   VSRange,
+  WriteSchemaResp,
 } from "./types";
+import { DVault } from "./types/DVault";
+import { FindNoteOpts } from "./types/FindNoteOpts";
 
 // === Types
 
@@ -52,25 +52,13 @@ export function createNoOpLogger() {
   };
 }
 
-export type APIErrorType =
-  | "does_not_exist_error"
-  | "not_authorized_error"
-  | "unknown_error"
-  | "invalid_request_error";
-
-export interface IAPIErrorArgs {
-  type: APIErrorType;
-  message?: string;
-  code?: number;
-}
-
 interface IRequestArgs {
   headers: any;
 }
 
-interface IAPIPayload {
-  data: null | any | any[];
-  error: null | DendronError | DendronCompositeError;
+export interface IAPIPayload {
+  data: undefined | any | any[];
+  error: undefined | DendronError | DendronCompositeError;
 }
 
 interface IAPIOpts {
@@ -106,14 +94,6 @@ interface IDoRequestArgs {
   json?: boolean;
 }
 
-/**
- @deprecated - use RespV2 instead
-  */
-type APIPayload<T = any> = {
-  error: IDendronError | null;
-  data?: T;
-};
-
 // --- Requests
 export type WorkspaceInitRequest = {
   uri: string;
@@ -125,25 +105,19 @@ export type WorkspaceSyncRequest = WorkspaceRequest;
 
 export type WorkspaceRequest = { ws: string };
 
-export type EngineQueryRequest = DEngineQuery & { ws: string };
 export type EngineRenameNoteRequest = RenameNoteOpts & { ws: string };
-export type EngineUpdateNoteRequest = { ws: string } & {
-  note: NoteProps;
-  opts?: EngineUpdateNodesOptsV2;
-};
 export type EngineWriteRequest = {
   node: DNodeProps;
   opts?: EngineWriteOptsV2;
 } & { ws: string };
 export type EngineDeleteRequest = {
   id: string;
-  opts?: EngineDeleteOptsV2;
+  opts?: EngineDeleteOpts;
 } & { ws: string };
 export type EngineBulkAddRequest = {
   opts: BulkWriteNotesOpts;
 } & { ws: string };
 
-export type EngineInfoRequest = WorkspaceRequest;
 export type NoteQueryRequest = {
   qs: string;
   vault?: DVault;
@@ -162,16 +136,10 @@ export type GetDecorationsRequest = {
   }[];
   text: string;
 } & Partial<WorkspaceRequest>;
-export type GetAnchorsRequest = { note: NoteProps };
-export type GetLinksRequest = {
-  note: NoteProps;
-  /** regular is backlinks for wikilinks, hashtags, user tags etc., candidate is for backlink candidates */
-  type: "regular" | "candidate";
-} & WorkspaceRequest;
 
 export type SchemaDeleteRequest = {
   id: string;
-  opts?: EngineDeleteOptsV2;
+  opts?: EngineDeleteOpts;
 } & Partial<WorkspaceRequest>;
 export type SchemaReadRequest = {
   id: string;
@@ -181,9 +149,8 @@ export type SchemaQueryRequest = {
 } & Partial<WorkspaceRequest>;
 export type SchemaWriteRequest = {
   schema: SchemaModuleProps;
+  opts?: EngineSchemaWriteOpts;
 } & WorkspaceRequest;
-
-export type SchemaUpdateRequest = SchemaWriteRequest;
 
 export type AssetGetRequest = { fpath: string } & WorkspaceRequest;
 
@@ -192,29 +159,7 @@ export type AssetGetThemeRequest = {
   themeType: ThemeType;
 } & WorkspaceRequest;
 
-// --- Payload
-export type InitializePayload = APIPayload<DEngineInitPayload>;
-
-export type WorkspaceSyncPayload = InitializePayload;
-export type WorkspaceListPayload = APIPayload<{ workspaces: string[] }>;
-
-export type EngineQueryPayload = APIPayload<DNodeProps[]>;
-export type EngineRenameNotePayload = APIPayload<RenameNotePayload>;
-export type EngineUpdateNotePayload = APIPayload<NoteProps>;
-export type EngineDeletePayload = APIPayload<EngineDeleteNotePayload>;
-
-export type SchemaDeletePayload = APIPayload<DEngineDeleteSchemaPayload>;
-export type SchemaReadPayload = APIPayload<SchemaModuleProps>;
-export type SchemaQueryPayload = APIPayload<SchemaModuleProps[]>;
-export type SchemaWritePayload = APIPayload<void>;
-export type SchemaUpdatePayload = APIPayload<void>;
-
 export class APIUtils {
-  static genUrlWithQS({ url, params }: { url: string; params: any }) {
-    const str = querystring.stringify(params);
-    return url + `?${str}`;
-  }
-
   /** Generate a localhost url to this API.
    *
    * Warning! In VSCode, the generated URL won't work if the user has a remote
@@ -253,7 +198,6 @@ abstract class API {
 
   _createPayload(data: any) {
     return {
-      error: null,
       data,
     };
   }
@@ -365,7 +309,7 @@ export class DendronAPI extends API {
     });
   }
 
-  configGet(req: WorkspaceRequest): Promise<APIPayload<ConfigGetPayload>> {
+  configGet(req: WorkspaceRequest): Promise<RespV3<IntermediateDendronConfig>> {
     return this._makeRequest({
       path: "config/get",
       method: "get",
@@ -373,15 +317,7 @@ export class DendronAPI extends API {
     });
   }
 
-  configWrite(req: ConfigWriteOpts & WorkspaceRequest): Promise<RespV2<void>> {
-    return this._makeRequest({
-      path: "config/write",
-      method: "post",
-      body: req,
-    });
-  }
-
-  workspaceInit(req: WorkspaceInitRequest): Promise<InitializePayload> {
+  workspaceInit(req: WorkspaceInitRequest): Promise<DEngineInitResp> {
     return this._makeRequest({
       path: "workspace/initialize",
       method: "post",
@@ -391,14 +327,7 @@ export class DendronAPI extends API {
     });
   }
 
-  workspaceList(): Promise<WorkspaceListPayload> {
-    return this._makeRequest({
-      path: "workspace/all",
-      method: "get",
-    });
-  }
-
-  workspaceSync(req: WorkspaceSyncRequest): Promise<InitializePayload> {
+  workspaceSync(req: WorkspaceSyncRequest): Promise<DEngineInitResp> {
     return this._makeRequest({
       path: "workspace/sync",
       method: "post",
@@ -406,7 +335,7 @@ export class DendronAPI extends API {
     });
   }
 
-  engineBulkAdd(req: EngineBulkAddRequest): Promise<BulkWriteNoteResp> {
+  engineBulkAdd(req: EngineBulkAddRequest): Promise<BulkWriteNotesResp> {
     return this._makeRequest({
       path: "note/bulkAdd",
       method: "post",
@@ -414,7 +343,7 @@ export class DendronAPI extends API {
     });
   }
 
-  engineDelete(req: EngineDeleteRequest): Promise<EngineDeletePayload> {
+  engineDelete(req: EngineDeleteRequest): Promise<DeleteNoteResp> {
     return this._makeRequest({
       path: "note/delete",
       method: "post",
@@ -422,28 +351,16 @@ export class DendronAPI extends API {
     });
   }
 
-  engineInfo(): Promise<RespV2<EngineInfoResp>> {
+  engineInfo(): Promise<EngineInfoResp> {
     return this._makeRequest({
       path: "note/info",
       method: "get",
     });
   }
 
-  engineRenameNote(
-    req: EngineRenameNoteRequest
-  ): Promise<EngineRenameNotePayload> {
+  engineRenameNote(req: EngineRenameNoteRequest): Promise<RenameNoteResp> {
     return this._makeRequest({
       path: "note/rename",
-      method: "post",
-      body: req,
-    });
-  }
-
-  engineUpdateNote(
-    req: EngineUpdateNoteRequest
-  ): Promise<EngineUpdateNotePayload> {
-    return this._makeRequest({
-      path: "note/update",
       method: "post",
       body: req,
     });
@@ -457,7 +374,15 @@ export class DendronAPI extends API {
     });
   }
 
-  noteQuery(req: NoteQueryRequest): Promise<NoteQueryResp> {
+  noteFind(req: APIRequest<FindNoteOpts>): Promise<RespV3<FindNotesResp>> {
+    return this._makeRequest({
+      path: "note/find",
+      method: "post",
+      body: req,
+    });
+  }
+
+  noteQuery(req: NoteQueryRequest): Promise<QueryNotesResp> {
     return this._makeRequest({
       path: "note/query",
       method: "get",
@@ -465,18 +390,15 @@ export class DendronAPI extends API {
     });
   }
 
-  noteRender(req: APIRequest<RenderNoteOpts>) {
-    return this._makeRequest<{
-      data: RenderNotePayload;
-      error: null | DendronError;
-    }>({
+  noteRender(req: APIRequest<RenderNoteOpts>): Promise<RenderNoteResp> {
+    return this._makeRequest({
       path: "note/render",
       method: "post",
       body: req,
     });
   }
 
-  getNoteBlocks(req: GetNoteBlocksRequest): Promise<GetNoteBlocksPayload> {
+  getNoteBlocks(req: GetNoteBlocksRequest): Promise<GetNoteBlocksResp> {
     return this._makeRequest({
       path: "note/blocks",
       method: "get",
@@ -484,7 +406,7 @@ export class DendronAPI extends API {
     });
   }
 
-  getDecorations(req: GetDecorationsRequest): Promise<GetDecorationsPayload> {
+  getDecorations(req: GetDecorationsRequest): Promise<GetDecorationsResp> {
     return this._makeRequest({
       path: "note/decorations",
       method: "post",
@@ -492,23 +414,7 @@ export class DendronAPI extends API {
     });
   }
 
-  getLinks(req: GetLinksRequest): Promise<GetNoteLinksPayload> {
-    return this._makeRequest({
-      path: "note/links",
-      method: "post",
-      body: req,
-    });
-  }
-
-  getAnchors(req: GetAnchorsRequest): Promise<GetNoteAnchorsPayload> {
-    return this._makeRequest({
-      path: "note/anchors",
-      method: "post",
-      body: req,
-    });
-  }
-
-  schemaDelete(req: SchemaDeleteRequest): Promise<SchemaDeletePayload> {
+  schemaDelete(req: SchemaDeleteRequest): Promise<DeleteSchemaResp> {
     return this._makeRequest({
       path: "schema/delete",
       method: "post",
@@ -516,7 +422,7 @@ export class DendronAPI extends API {
     });
   }
 
-  schemaRead(req: SchemaReadRequest): Promise<SchemaReadPayload> {
+  schemaRead(req: SchemaReadRequest): Promise<GetSchemaResp> {
     return this._makeRequest({
       path: "schema/get",
       method: "get",
@@ -524,7 +430,7 @@ export class DendronAPI extends API {
     });
   }
 
-  schemaQuery(req: SchemaQueryRequest): Promise<SchemaQueryPayload> {
+  schemaQuery(req: SchemaQueryRequest): Promise<QuerySchemaResp> {
     return this._makeRequest({
       path: "schema/query",
       method: "post",
@@ -532,17 +438,9 @@ export class DendronAPI extends API {
     });
   }
 
-  schemaWrite(req: SchemaWriteRequest): Promise<SchemaWritePayload> {
+  schemaWrite(req: SchemaWriteRequest): Promise<WriteSchemaResp> {
     return this._makeRequest({
       path: "schema/write",
-      method: "post",
-      body: req,
-    });
-  }
-
-  schemaUpdate(req: SchemaUpdateRequest): Promise<SchemaUpdatePayload> {
-    return this._makeRequest({
-      path: "schema/update",
       method: "post",
       body: req,
     });

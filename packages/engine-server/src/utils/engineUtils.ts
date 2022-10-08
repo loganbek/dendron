@@ -3,15 +3,18 @@ import {
   ConfigUtils,
   CONSTANTS,
   DendronError,
-  DEngineClient,
   ErrorFactory,
+  ERROR_SEVERITY,
+  IntermediateDendronConfig,
   NoteProps,
-  NoteUtils,
+  ReducedDEngine,
   RespV3,
+  VaultUtils,
 } from "@dendronhq/common-all";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
+import { AnchorUtils, LinkUtils } from "@dendronhq/unified";
 
 export function openPortFile({ fpath }: { fpath: string }): number {
   return _.toInteger(_.trim(fs.readFileSync(fpath, { encoding: "utf8" })));
@@ -83,60 +86,68 @@ export class EngineUtils {
   }
 
   /**
-   * NOTE: if the `note.body.length < maxNoteLength`, we will not add any links or anchors to the note
-   * @param param0
-   * @returns
+   * Recalculate note links and anchors.
+   * Modifies note in place
+   *
+   * NOTE: if the `note.body.length > maxNoteLength`, throw error to client informing them to increase maxNoteLength
    */
   static async refreshNoteLinksAndAnchors({
     note,
     engine,
+    config,
+    fmChangeOnly,
+    silent,
   }: {
     note: NoteProps;
-    engine: DEngineClient;
-  }) {
-    const maxNoteLength = ConfigUtils.getWorkspace(engine.config).maxNoteLength;
-    if (
-      note.body.length <
-      (maxNoteLength || CONSTANTS.DENDRON_DEFAULT_MAX_NOTE_LENGTH)
-    ) {
-      const links = await engine.getLinks({ note, type: "regular" });
-      const anchors = await engine.getAnchors({
+    engine: ReducedDEngine;
+    config: IntermediateDendronConfig;
+    fmChangeOnly?: boolean;
+    silent?: boolean;
+  }): Promise<void> {
+    const maxNoteLength = Math.min(
+      ConfigUtils.getWorkspace(config).maxNoteLength,
+      CONSTANTS.DENDRON_DEFAULT_MAX_NOTE_LENGTH
+    );
+    if (note.body.length > maxNoteLength) {
+      if (silent) {
+        return;
+      }
+      // this should only show up if a user navigates
+      throw new DendronError({
+        message:
+          `Note "${note.fname}" in vault "${VaultUtils.getName(
+            note.vault
+          )}" is longer than ${maxNoteLength} characters, some features like backlinks may not work correctly for it. ` +
+          `You may increase "maxNoteLength" in "dendron.yml" to override this warning.`,
+        severity: ERROR_SEVERITY.MINOR,
+      });
+    }
+    const links = await LinkUtils.findLinks({
+      note,
+      type: "regular",
+      engine,
+      config,
+    });
+    note.links = links;
+
+    if (!fmChangeOnly) {
+      const anchors = AnchorUtils.findAnchors({
         note,
       });
-      if (!anchors.data || !links.data)
-        throw new DendronError({
-          message: "Failed to calculate note anchors",
-          payload: {
-            note: NoteUtils.toLogObj(note),
-            anchorsError: anchors.error,
-            linksError: links.error,
-          },
-        });
 
-      // update links for note
-      note.links = links.data;
-      note.anchors = anchors.data;
+      note.anchors = anchors;
 
-      const devConfig = ConfigUtils.getProp(engine.config, "dev");
+      const devConfig = ConfigUtils.getProp(config, "dev");
       const linkCandidatesEnabled = devConfig?.enableLinkCandidates;
       if (linkCandidatesEnabled) {
-        const linkCandidates = await engine.getLinks({
+        const linkCandidates = await LinkUtils.findLinks({
           note,
           type: "candidate",
+          engine,
+          config,
         });
-        if (!linkCandidates.data)
-          throw new DendronError({
-            message: "Failed to calculate link candidates",
-            payload: {
-              note: NoteUtils.toLogObj(note),
-              anchorsError: anchors.error,
-              linksError: links.error,
-            },
-          });
-        note.links = note.links.concat(linkCandidates.data);
+        note.links = note.links.concat(linkCandidates);
       }
-      return note;
     }
-    return note;
   }
 }

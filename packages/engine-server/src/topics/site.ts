@@ -15,30 +15,35 @@ import {
   NoteUtils,
   UseVaultBehavior,
   VaultUtils,
-  BooleanResp,
   ConfigUtils,
   DendronPublishingConfig,
   configIsV4,
   isBlockAnchor,
   getSlugger,
+  IDendronError,
+  asyncLoopOneAtATime,
+  NotePropsMeta,
 } from "@dendronhq/common-all";
 import {
   createLogger,
+  DConfig,
   resolvePath,
   vault2Path,
 } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
-import { DConfig } from "../config";
 import { DEngineClient } from "../types";
 import { HierarchyUtils, stripLocalOnlyTags } from "../utils";
 
 const LOGGER_NAME = "SiteUtils";
 
+/**
+ * @deprecated - prefer to use methods in unified/SiteUtils if they exist.
+ */
 export class SiteUtils {
   static canPublish(opts: {
-    note: NoteProps;
+    note: NotePropsMeta;
     config: IntermediateDendronConfig;
     engine: DEngineClient;
   }) {
@@ -160,7 +165,6 @@ export class SiteUtils {
   }): Promise<{ notes: NotePropsByIdDict; domains: NoteProps[] }> {
     const logger = createLogger(LOGGER_NAME);
     const { engine, config } = opts;
-    const notes = _.clone(engine.notes);
 
     const cleanPublishingConfig = configIsV4(config)
       ? DConfig.cleanSiteConfig(
@@ -212,7 +216,7 @@ export class SiteUtils {
       const rootDomain = domains[0];
       // special case, check if any of these children were supposed to be hidden
       domains = domains
-        .concat(rootDomain.children.map((id) => notes[id]))
+        .concat((await engine.bulkGetNotes(rootDomain.children)).data)
         .filter((note) => this.canPublish({ note, config, engine }));
     }
     logger.info({
@@ -248,13 +252,9 @@ export class SiteUtils {
       config,
       noteOrName: domain,
     });
-    const notesForHierarchy = _.clone(engine.notes);
 
-    // get the domain note
-    const notes = NoteUtils.getNotesByFnameFromEngine({
-      fname: domain,
-      engine,
-    });
+    // get the domain notes
+    const notes = await engine.findNotes({ fname: domain });
     logger.info({
       ctx: "filterByHierarchy:candidates",
       domain,
@@ -267,14 +267,13 @@ export class SiteUtils {
     const duplicateNoteBehavior = publishingConfig.duplicateNoteBehavior;
     // duplicate notes found with same name, need to intelligently resolve
     if (notes.length > 1) {
-      domainNote = SiteUtils.handleDup({
+      domainNote = await SiteUtils.handleDup({
         allowStubs: false,
         dupBehavior: duplicateNoteBehavior,
         engine,
         config,
         fname: domain,
         noteCandidates: notes,
-        noteDict: notesForHierarchy,
       });
       // no note found
     } else if (notes.length < 1) {
@@ -341,15 +340,16 @@ export class SiteUtils {
         await engine.writeNote(note);
       } else {
         // eslint-disable-next-line no-await-in-loop
-        await engine.updateNote(note);
+        await engine.writeNote(note, { metaOnly: true });
       }
 
       // if `skipLevels` is enabled, the children of the current note are descendants
       // further down
-      let children = HierarchyUtils.getChildren({
+      // eslint-disable-next-line no-await-in-loop
+      let children = await HierarchyUtils.getChildren({
         skipLevels: siteFM.skipLevels || 0,
         note,
-        notes: notesForHierarchy,
+        engine,
       });
       if (siteFM.skipLevels && siteFM.skipLevels > 0) {
         note.children = children.map((ent) => ent.id);
@@ -413,7 +413,7 @@ export class SiteUtils {
 
   static getConfigForHierarchy(opts: {
     config: IntermediateDendronConfig;
-    noteOrName: NoteProps | string;
+    noteOrName: NotePropsMeta | string;
   }) {
     const { config, noteOrName } = opts;
     const fname = _.isString(noteOrName) ? noteOrName : noteOrName.fname;
@@ -472,27 +472,44 @@ export class SiteUtils {
     return { url: siteUrl, index: siteIndex };
   }
 
+  static getSitePrefixForNote(config: IntermediateDendronConfig) {
+    const assetsPrefix = ConfigUtils.getAssetsPrefix(config);
+    return assetsPrefix ? assetsPrefix + "/notes/" : "/notes/";
+  }
+
   static getSiteUrlPathForNote({
     pathValue,
     pathAnchor,
     config,
     addPrefix,
+    note,
   }: {
     pathValue?: string;
     pathAnchor?: string;
     config: IntermediateDendronConfig;
     addPrefix?: boolean;
+    note?: NoteProps;
   }): string {
     // add path prefix if valid
     let pathPrefix: string = "";
     if (addPrefix) {
-      const assetsPrefix = ConfigUtils.getAssetsPrefix(config);
-      pathPrefix = assetsPrefix ? assetsPrefix + "/notes/" : "/notes/";
+      pathPrefix = this.getSitePrefixForNote(config);
     }
 
     // slug anchor if it is not a block anchor
     if (pathAnchor && !isBlockAnchor(pathAnchor)) {
       pathAnchor = `${getSlugger().slug(pathAnchor)}`;
+    }
+
+    // no prefix if we are at the index note
+    const isIndex: boolean = _.isUndefined(note)
+      ? false
+      : SiteUtils.isIndexNote({
+          indexNote: config.publishing?.siteIndex,
+          note,
+        });
+    if (isIndex) {
+      return `/`;
     }
     // remove extension for pretty links
     const usePrettyLinks = ConfigUtils.getEnablePrettlyLinks(config);
@@ -505,36 +522,28 @@ export class SiteUtils {
     }`;
   }
 
-  static handleDup(opts: {
+  static async handleDup(opts: {
     dupBehavior?: DuplicateNoteBehavior;
     allowStubs?: boolean;
     engine: DEngineClient;
     fname: string;
     config: IntermediateDendronConfig;
     noteCandidates: NoteProps[];
-    noteDict: NotePropsByIdDict;
   }) {
-    const {
-      engine,
-      fname,
-      noteCandidates,
-      noteDict,
-      config,
-      dupBehavior,
-      allowStubs,
-    } = _.defaults(opts, {
-      dupBehavior: {
-        action: DuplicateNoteActionEnum.useVault,
-        payload: [],
-      } as UseVaultBehavior,
-      allowStubs: true,
-    });
+    const { engine, fname, noteCandidates, config, dupBehavior, allowStubs } =
+      _.defaults(opts, {
+        dupBehavior: {
+          action: DuplicateNoteActionEnum.useVault,
+          payload: [],
+        } as UseVaultBehavior,
+        allowStubs: true,
+      });
     const ctx = "handleDup";
     let domainNote: NoteProps | undefined;
 
     if (_.isArray(dupBehavior.payload)) {
       const vaultNames = dupBehavior.payload;
-      _.forEach(vaultNames, (vname) => {
+      await asyncLoopOneAtATime(vaultNames, async (vname) => {
         if (domainNote) {
           return;
         }
@@ -542,11 +551,7 @@ export class SiteUtils {
           vname,
           vaults: engine.vaults,
         });
-        const maybeNote = NoteUtils.getNoteByFnameFromEngine({
-          fname,
-          engine,
-          vault,
-        });
+        const maybeNote = (await engine.findNotes({ fname, vault }))[0];
         if (maybeNote && maybeNote.stub && !allowStubs) {
           return;
         }
@@ -602,11 +607,12 @@ export class SiteUtils {
     const domainId = domainNote.id;
     // merge children
     domainNote.children = getUniqueChildrenIds(noteCandidates);
-    // update parents
-    domainNote.children.map((id) => {
-      const maybeNote = noteDict[id];
-      maybeNote.parent = domainId;
+    // update children's parent field
+    const children = (await engine.bulkGetNotes(domainNote.children)).data;
+    children.map((note) => {
+      note.parent = domainId;
     });
+    await engine.bulkWriteNotes({ notes: children, opts: { metaOnly: true } });
     const logger = createLogger(LOGGER_NAME);
     logger.info({
       ctx: "filterByHierarchy",
@@ -631,21 +637,20 @@ export class SiteUtils {
     return indexNote ? note.fname === indexNote : DNodeUtils.isRoot(note);
   }
 
-  static validateConfig(
-    sconfig: DendronSiteConfig | DendronPublishingConfig
-  ): BooleanResp {
+  static validateConfig(sconfig: DendronSiteConfig | DendronPublishingConfig): {
+    error?: IDendronError;
+  } {
     // asset prefix needs one slash
     if (!_.isUndefined(sconfig.assetsPrefix)) {
       if (!sconfig.assetsPrefix.startsWith("/")) {
         return {
-          data: false,
           error: new DendronError({
             message: "assetsPrefix requires a '/' in front of the path",
           }),
         };
       }
     }
-    return { data: true, error: null };
+    return { error: undefined };
   }
 }
 

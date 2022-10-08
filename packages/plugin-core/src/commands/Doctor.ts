@@ -1,21 +1,25 @@
 import {
   DendronError,
   DEngineClient,
+  DNodeUtils,
   DVault,
   ExtensionEvents,
+  extractNoteChangeEntryCounts,
   isNotUndefined,
   KeybindingConflictDetectedSource,
+  NoteChangeEntry,
+  NoteDicts,
+  NoteDictsUtils,
+  NoteFnameDictUtils,
   NoteProps,
-  NoteUtils,
   Position,
+  ValidateFnameResp,
   VaultUtils,
 } from "@dendronhq/common-all";
 import {
   DoctorService,
   DoctorActionsEnum,
   BackfillService,
-  RemarkUtils,
-  DConfig,
 } from "@dendronhq/engine-server";
 import _ from "lodash";
 import _md from "markdown-it";
@@ -41,6 +45,8 @@ import { IDendronExtension } from "../dendronExtensionInterface";
 import { KeybindingUtils } from "../KeybindingUtils";
 import { QuickPickHierarchySelector } from "../components/lookup/HierarchySelector";
 import { PodUIControls } from "../components/pods/PodControls";
+import { RemarkUtils } from "@dendronhq/unified";
+import { DConfig } from "@dendronhq/common-server";
 
 const md = _md();
 type Finding = {
@@ -55,6 +61,7 @@ type IncompatibleExtensionInstallStatus = {
 
 type CommandOptsData = {
   installStatus?: IncompatibleExtensionInstallStatus[];
+  note?: NoteProps;
 };
 
 type CommandOpts = {
@@ -65,6 +72,7 @@ type CommandOpts = {
 
 type CommandOutput = {
   data: Finding[];
+  extra: any;
 };
 
 type CreateQuickPickOpts = {
@@ -244,14 +252,10 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
         vaults,
         vname: ent.vault,
       }) as DVault;
-      const note = NoteUtils.getNoteByFnameFromEngine({
-        fname: ent.file,
-        engine,
-        vault,
-      }) as NoteProps;
-      const fsPath = NoteUtils.getFullPath({
-        note,
+      const fsPath = DNodeUtils.getFullPath({
         wsRoot,
+        vault,
+        basename: ent.file + ".md",
       });
       const fileContent = fs.readFileSync(fsPath).toString();
       const nodePosition = RemarkUtils.getNodePositionPastFrontmatter(
@@ -325,6 +329,79 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
     return { installStatus, contents };
   }
 
+  async showFixInvalidFileNamePreview(opts: {
+    canRename: {
+      cleanedFname: string;
+      canRename: boolean;
+      note: NoteProps;
+      resp: ValidateFnameResp;
+    }[];
+    cantRename: {
+      cleanedFname: string;
+      canRename: boolean;
+      note: NoteProps;
+      resp: ValidateFnameResp;
+    }[];
+  }) {
+    const { canRename, cantRename } = opts;
+    const canRenameContent =
+      canRename.length > 0
+        ? [
+            "These notes have invalid filenames and can be automatically fixed:",
+            "",
+            "| file name || change to | reason |",
+            "|-|-|-|-|",
+            canRename
+              .map((item) => {
+                const { note, resp, cleanedFname } = item;
+                return `| \`${note.fname}\` || __${cleanedFname}__ | ${resp.reason} |`;
+              })
+              .join("\n"),
+          ].join("\n")
+        : "";
+
+    const cantRenameContent =
+      cantRename.length > 0
+        ? [
+            "These notes have invalid filenames but cannot be automatically fixed because it will create duplicate notes with same file names.",
+            "",
+            "Please review them and rename manually:",
+            "",
+            "| file name || change to | reason |",
+            "|-|-|-|-|",
+            cantRename
+              .map((item) => {
+                const { note, resp, cleanedFname } = item;
+                return `| \`${note.fname}\`|| __${cleanedFname}__ | ${resp.reason} |`;
+              })
+              .join("\n"),
+            "",
+          ].join("\n")
+        : "";
+    const contents = [
+      "# Fix Invalid Filenames",
+      "",
+      "The notes listed below are invalid.",
+      "",
+      "Please see [Restrictions](https://wiki.dendron.so/notes/v21pacjod0eqgdhb7zo7fvw) to learn more about file name restrictions.",
+      "",
+      "***",
+      canRenameContent,
+      "",
+      cantRenameContent,
+      "",
+    ].join("\n");
+    const panel = window.createWebviewPanel(
+      "invalidFileNamesPreview",
+      "Invalid Filenames",
+      ViewColumn.One,
+      {
+        enableCommandUris: true,
+      }
+    );
+    panel.webview.html = md.render(contents);
+  }
+
   private async reload() {
     const engine = await new ReloadIndexCommand().execute();
     if (_.isUndefined(engine)) {
@@ -333,11 +410,26 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
     return engine;
   }
 
-  addAnalyticsPayload(opts: CommandOpts) {
-    return {
+  addAnalyticsPayload(opts: CommandOpts, out: CommandOutput) {
+    let payload = {
       action: opts.action,
       scope: opts.scope,
     };
+    if (out.extra) {
+      switch (opts.action) {
+        case DoctorActionsEnum.FIX_INVALID_FILENAMES: {
+          payload = {
+            ...payload,
+            ...out.extra,
+          };
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+    }
+    return payload;
   }
 
   async execute(opts: CommandOpts) {
@@ -345,6 +437,7 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
     window.showInformationMessage("Calling the doctor.");
     const { wsRoot, config } = this.extension.getDWorkspace();
     const findings: Finding[] = [];
+    let extra: any;
     if (_.isUndefined(wsRoot)) {
       throw new DendronError({ message: "rootDir undefined" });
     }
@@ -357,26 +450,32 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
     }
     // Make sure to save any changes in the file because Doctor reads them from
     // disk, and won't see changes that haven't been saved.
-    const document = VSCodeUtils.getActiveTextEditor()?.document;
-    if (
-      isNotUndefined(document) &&
-      isNotUndefined(this.extension.wsUtils.getNoteFromDocument(document))
-    ) {
-      await document.save();
-    }
-    this.L.info({ ctx, msg: "pre:Reload" });
-
-    if (shouldDoctorReloadWorkspaceBeforeDoctorAction(opts.action)) {
-      await this.reload();
-    }
-
     let note;
-    if (opts.scope === "file") {
+    if (opts.data?.note) {
+      note = opts.data.note;
+    } else {
       const document = VSCodeUtils.getActiveTextEditor()?.document;
-      if (_.isUndefined(document)) {
-        throw new DendronError({ message: "No note open." });
+      if (
+        isNotUndefined(document) &&
+        isNotUndefined(
+          await this.extension.wsUtils.getNoteFromDocument(document)
+        )
+      ) {
+        await document.save();
       }
-      note = this.extension.wsUtils.getNoteFromDocument(document);
+      this.L.info({ ctx, msg: "pre:Reload" });
+
+      if (shouldDoctorReloadWorkspaceBeforeDoctorAction(opts.action)) {
+        await this.reload();
+      }
+
+      if (opts.scope === "file") {
+        const document = VSCodeUtils.getActiveTextEditor()?.document;
+        if (_.isUndefined(document)) {
+          throw new DendronError({ message: "No note open." });
+        }
+        note = await this.extension.wsUtils.getNoteFromDocument(document);
+      }
     }
 
     const engine = this.extension.getEngine();
@@ -418,10 +517,9 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
         break;
       }
       case DoctorActionsEnum.CREATE_MISSING_LINKED_NOTES: {
-        let notes;
+        let notes: NoteProps[];
         if (_.isUndefined(note)) {
-          notes = _.values(engine.notes);
-          notes = notes.filter((note) => !note.stub);
+          notes = await engine.findNotes({ excludeStub: true });
         } else {
           notes = [note];
         }
@@ -461,8 +559,7 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
       case DoctorActionsEnum.FIND_BROKEN_LINKS: {
         let notes;
         if (_.isUndefined(note)) {
-          notes = _.values(engine.notes);
-          notes = notes.filter((note) => !note.stub);
+          notes = await engine.findNotes({ excludeStub: true });
         } else {
           notes = [note];
         }
@@ -546,6 +643,61 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
         ds.dispose();
         break;
       }
+      case DoctorActionsEnum.FIX_INVALID_FILENAMES: {
+        const ds = new DoctorService();
+        const notes = (await engine.queryNotes({ qs: "*", originalQS: "*" }))
+          .data;
+        if (notes !== undefined) {
+          const notesById = NoteDictsUtils.createNotePropsByIdDict(notes);
+          const notesByFname =
+            NoteFnameDictUtils.createNotePropsByFnameDict(notesById);
+          const noteDicts: NoteDicts = { notesById, notesByFname };
+          const { canRename, cantRename, stats } = ds.findInvalidFileNames({
+            notes,
+            noteDicts,
+          });
+
+          extra = stats;
+          let changes: NoteChangeEntry[] = [];
+          if (canRename.length > 0 || cantRename.length > 0) {
+            await this.showFixInvalidFileNamePreview({ canRename, cantRename });
+            if (canRename.length > 0) {
+              const options = ["proceed", "cancel"];
+              const shouldProceed = await VSCodeUtils.showQuickPick(options, {
+                placeHolder: "proceed",
+                ignoreFocusOut: true,
+              });
+              if (shouldProceed !== "proceed") {
+                window.showInformationMessage("cancelled");
+                break;
+              }
+              window.showInformationMessage("Fixing invalid filenames...");
+              changes = await ds.fixInvalidFileNames({
+                canRename,
+                engine,
+              });
+              const maybeReminder =
+                cantRename.length > 0
+                  ? " Don't forget to manually rename invalid notes that cannot be automatically fixed."
+                  : "";
+              window.showInformationMessage(
+                `Invalid filenames fixed.${maybeReminder}`
+              );
+            }
+          } else {
+            window.showInformationMessage("There are no invalid filenames!");
+          }
+          ds.dispose();
+          const changeCounts = extractNoteChangeEntryCounts(changes);
+          extra = {
+            ...extra,
+            ...changeCounts,
+          };
+        } else {
+          window.showErrorMessage("Doctor failed. Please reload and try again");
+        }
+        break;
+      }
       default: {
         const candidates: NoteProps[] | undefined = _.isUndefined(note)
           ? undefined
@@ -574,7 +726,7 @@ export class DoctorCommand extends BasicCommand<CommandOpts, CommandOutput> {
       delayedUpdateDecorations();
     }
 
-    return { data: findings };
+    return { data: findings, extra };
   }
   async showResponse(findings: CommandOutput) {
     findings.data.forEach((f) => {

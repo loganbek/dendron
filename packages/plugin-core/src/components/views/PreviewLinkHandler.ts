@@ -4,43 +4,24 @@ import {
   ErrorFactory,
   isVSCodeCommandUri,
   isWebUri,
-  NoteProps,
-  NoteUtils,
+  NotePropsMeta,
   NoteViewMessage,
   TutorialEvents,
 } from "@dendronhq/common-all";
-import { ExtensionUtils, findNonNoteFile } from "@dendronhq/common-server";
+import { FileExtensionUtils, findNonNoteFile } from "@dendronhq/common-server";
 import path from "path";
 import * as vscode from "vscode";
 import { IDendronExtension } from "../../dendronExtensionInterface";
 import { Logger } from "../../logger";
 import { QuickPickUtil } from "../../utils/quickPick";
 import { VSCodeUtils } from "../../vsCodeUtils";
-import { AnchorUtils } from "@dendronhq/engine-server";
+import { AnchorUtils } from "@dendronhq/unified";
 import _ from "lodash";
 import { PluginFileUtils } from "../../utils/files";
 import { GotoNoteCommand } from "../../commands/GotoNote";
 import { AnalyticsUtils } from "../../utils/analytics";
-
-export enum LinkType {
-  WIKI = "WIKI",
-  ASSET = "ASSET",
-  WEBSITE = "WEBSITE",
-  TEXT = "TEXT",
-  COMMAND = "COMMAND",
-  UNKNOWN = "UNKNOWN",
-}
-
-/**
- * Interface for handling preview link click events
- */
-export interface IPreviewLinkHandler {
-  /**
-   * Handle the event of a user clicking on a link in the preview webview pane
-   * @param param0
-   */
-  onLinkClicked({ data }: { data: NoteViewMessage["data"] }): Promise<LinkType>;
-}
+import { ExtensionUtils } from "../../utils/ExtensionUtils";
+import { IPreviewLinkHandler, LinkType } from "./IPreviewLinkHandler";
 
 /**
  * Default implementation for handling link clicks in preview
@@ -53,7 +34,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
    * TODO: this logic is specific to the tutorial workspace
    *       add a way to register callbacks to the link handler in the future
    */
-  private _trackAllowedIds = new Set<string>(["c1bs7wsjfbhb0zipaywqfbg"]);
+  private _trackAllowedIds = ExtensionUtils.getTutorialIds();
 
   constructor(ext: IDendronExtension) {
     this._ext = ext;
@@ -81,6 +62,10 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
           LinkType: LinkType.WEBSITE,
           href: data.href,
         });
+        // some questions signal intent
+        if (data.href.endsWith("98f6d928-3f61-49fb-9c9e-70c27d25f838")) {
+          AnalyticsUtils.identify({ teamIntent: true });
+        }
       }
       return LinkType.WEBSITE;
     }
@@ -128,7 +113,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
     // If not, see if there's a matching asset (including in assets folder, outside vaults, or even an absolute path)
     const { wsRoot, vaults } = this._ext.getDWorkspace();
     const currentNote = data?.id
-      ? this._ext.getEngine().notes[data.id]
+      ? (await this._ext.getEngine().getNoteMeta(data.id)).data
       : undefined;
     const { fullPath } =
       (await findNonNoteFile({
@@ -139,7 +124,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
       })) || {};
     if (fullPath) {
       // Found a matching non-note file.
-      if (ExtensionUtils.isTextFileExtension(path.extname(fullPath))) {
+      if (FileExtensionUtils.isTextFileExtension(path.extname(fullPath))) {
         // If it's a text file, open it inside VSCode.
         const editor = await VSCodeUtils.openFileInEditor(
           vscode.Uri.file(fullPath),
@@ -180,7 +165,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
     data: NoteViewMessage["data"];
     engine: DEngineClient;
   }): Promise<{
-    note: NoteProps | undefined | null;
+    note: NotePropsMeta | undefined;
     anchor: DNoteAnchorBasic | undefined;
   }> {
     // wiki links will have the following format
@@ -217,7 +202,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
     const anchor = AnchorUtils.string2anchor(
       vscode.Uri.parse(data.href).fragment
     );
-    let note: NoteProps | undefined | null = engine.notes[noteId];
+    let note = (await engine.getNoteMeta(noteId)).data;
 
     if (note === undefined) {
       // If we could not find the note by the extracted id (when the note is within the same
@@ -225,10 +210,7 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
       // of the note was in place of the id in the HREF (as in case of navigating to a note
       // in a different vault without explicit vault specification). Hence we will attempt
       // to find the note by file name.
-      const candidates = NoteUtils.getNotesByFnameFromEngine({
-        fname: noteId,
-        engine,
-      });
+      const candidates = await engine.findNotes({ fname: noteId });
 
       if (candidates.length === 1) {
         note = candidates[0];
@@ -236,7 +218,6 @@ export class PreviewLinkHandler implements IPreviewLinkHandler {
         // We have more than one candidate hence lets as the user which candidate they would like
         // to navigate to
         note = await QuickPickUtil.showChooseNote(candidates);
-        if (note === undefined) note = null;
       }
     }
 

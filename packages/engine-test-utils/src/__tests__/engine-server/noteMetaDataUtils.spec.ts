@@ -1,10 +1,4 @@
-import {
-  DEngineClient,
-  DLink,
-  NoteProps,
-  NoteUtils,
-  RespV3,
-} from "@dendronhq/common-all";
+import { DLink, NoteProps, NoteUtils, RespV3 } from "@dendronhq/common-all";
 import {
   NoteTestUtilsV4,
   SetupHookFunction,
@@ -15,11 +9,6 @@ import {
 } from "@dendronhq/engine-server";
 import { runEngineTestV5 } from "../../engine";
 import { checkString } from "../../utils";
-
-// === Helper Functions
-const getNote = (engine: DEngineClient) => {
-  return engine.notes["foo"];
-};
 
 const preSetupHookForLinksAndTags: SetupHookFunction = async ({
   wsRoot,
@@ -119,7 +108,7 @@ describe("WHEN extracting links", () => {
     beforeAll(async () => {
       await runEngineTestV5(
         async ({ engine }) => {
-          const note = getNote(engine);
+          const note = (await engine.getNote("foo")).data!;
           links = NoteMetadataUtils.extractLinks({
             note,
             filters: ["gamma"],
@@ -133,7 +122,7 @@ describe("WHEN extracting links", () => {
     });
     test("THEN link is equal to filter", () => {
       expect(links[0]).toMatchObject({
-        alias: "gamma",
+        alias: undefined,
         from: { fname: "foo", id: "foo", vaultName: "vault1" },
         position: {
           end: { column: 10, line: 3, offset: 22 },
@@ -191,7 +180,7 @@ describe("when extracting tags", () => {
     let links: DLink[] = [];
     await runEngineTestV5(
       async ({ engine }) => {
-        const note = getNote(engine);
+        const note = (await engine.getNote("foo")).data!;
         links = NoteMetadataUtils.extractTags({
           note,
           filters,
@@ -206,7 +195,7 @@ describe("when extracting tags", () => {
     let resp: RespV3<DLink | undefined>;
     await runEngineTestV5(
       async ({ engine }) => {
-        const note = getNote(engine);
+        const note = (await engine.getNote("foo")).data!;
         resp = NoteMetadataUtils.extractSingleTag({
           note,
           filters,

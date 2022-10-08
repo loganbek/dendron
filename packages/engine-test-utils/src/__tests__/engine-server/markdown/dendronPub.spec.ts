@@ -3,10 +3,14 @@ import {
   DEngineClient,
   DVault,
   IntermediateDendronConfig,
+  NoteDicts,
+  NoteDictsUtils,
+  NoteProps,
   VaultUtils,
   WorkspaceOpts,
 } from "@dendronhq/common-all";
 import { AssertUtils, NoteTestUtilsV4 } from "@dendronhq/common-test-utils";
+import { DConfig } from "@dendronhq/common-server";
 import {
   DendronASTData,
   DendronASTDest,
@@ -15,7 +19,7 @@ import {
   ProcFlavor,
   ProcMode,
   VFile,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import { TestConfigUtils } from "../../../config";
 import { runEngineTestV5, testWithEngine } from "../../../engine";
@@ -23,16 +27,26 @@ import { ENGINE_HOOKS } from "../../../presets";
 import { checkString, TestUnifiedUtils } from "../../../utils";
 import { checkNotInVFile, checkVFile } from "./utils";
 
-function proc(
-  engine: DEngineClient,
-  dendron: DendronASTData,
-  opts?: DendronPubOpts,
-  flavor?: ProcFlavor
-) {
+function proc({
+  noteToRender,
+  dendron,
+  opts,
+  flavor,
+  noteCacheForRenderDict,
+  wsRoot,
+}: {
+  noteToRender: NoteProps;
+  dendron: DendronASTData;
+  opts?: DendronPubOpts;
+  flavor?: ProcFlavor;
+  noteCacheForRenderDict?: NoteDicts;
+  wsRoot?: string;
+}) {
   return MDUtilsV5.procRehypeFull(
     {
-      engine,
+      noteToRender,
       ...dendron,
+      noteCacheForRenderDict,
       wikiLinksOpts: {
         useId: false,
         ...opts?.wikiLinkOpts,
@@ -43,6 +57,7 @@ function proc(
         },
         ...opts,
       },
+      wsRoot,
     },
     flavor ? { flavor } : undefined
   );
@@ -98,26 +113,37 @@ function genPublishConfigWithAllPublicHierarchies() {
   return config;
 }
 
-function createProc({
+async function createProc({
   vaults,
-  engine,
   linkText,
   fname,
   config,
+  noteToRender,
+  parsingDependenciesByNoteProps,
 }: WorkspaceOpts & {
-  engine: DEngineClient;
   linkText: string;
   fname: string;
   config: IntermediateDendronConfig;
+  noteToRender: NoteProps;
+  parsingDependenciesByNoteProps?: NoteProps[];
 }) {
   const vault = vaults[0];
 
+  let noteCacheForRenderDict;
+  if (parsingDependenciesByNoteProps) {
+    noteCacheForRenderDict = NoteDictsUtils.createNoteDicts(
+      parsingDependenciesByNoteProps
+    );
+  }
+
   const proc = MDUtilsV5.procRehypeFull(
     {
-      engine,
+      noteToRender,
       fname,
       vault,
       config,
+      noteCacheForRenderDict,
+      vaults,
     },
     { flavor: ProcFlavor.PUBLISHING }
   );
@@ -125,12 +151,113 @@ function createProc({
 }
 
 describe("GIVEN dendronPub", () => {
-  const fnameAlpha = "alpha";
-  const fnameBeta = "beta";
+  const FNAME_ALPHA = "alpha";
+  const FNAME_BETA = "beta";
+
+  describe("WHEN note contains markdown link to an assetPath", () => {
+    let resp: VFile;
+    describe("AND assetsPrefix is set", () => {
+      const config = genPublishConfigWithAllPublicHierarchies();
+      ConfigUtils.setPublishProp(config, "assetsPrefix", "/foo");
+      beforeAll(async () => {
+        await runEngineTestV5(
+          async (opts) => {
+            resp = await createProc({
+              noteToRender: (await opts.engine.getNote(FNAME_ALPHA)).data!,
+              ...opts,
+              config,
+              fname: FNAME_ALPHA,
+              linkText: [
+                "[some pdf](assets/dummy-pdf.pdf)",
+                "[some pdf](/assets/dummy-pdf2.pdf)",
+              ].join("\n\n"),
+            });
+          },
+          {
+            preSetupHook: ENGINE_HOOKS.setupLinks,
+            expect,
+          }
+        );
+      });
+
+      test("THEN asset prefix is added properly", () => {
+        checkString(
+          resp.contents as string,
+          `<a href="/foo/assets/dummy-pdf.pdf">some pdf</a>`
+        );
+        checkString(
+          resp.contents as string,
+          `<a href="/foo/assets/dummy-pdf2.pdf">some pdf</a>`
+        );
+      });
+    });
+    describe("AND assetsPrefix is not set", () => {
+      const config = genPublishConfigWithAllPublicHierarchies();
+      beforeAll(async () => {
+        await runEngineTestV5(
+          async (opts) => {
+            resp = await createProc({
+              noteToRender: (await opts.engine.getNote(FNAME_ALPHA)).data!,
+              ...opts,
+              config,
+              fname: FNAME_ALPHA,
+              linkText: [
+                "[some pdf](assets/dummy-pdf.pdf)",
+                "[some pdf](/assets/dummy-pdf2.pdf)",
+              ].join("\n\n"),
+            });
+          },
+          {
+            preSetupHook: ENGINE_HOOKS.setupLinks,
+            expect,
+          }
+        );
+      });
+      test("THEN link is corrected to start with forward slash", () => {
+        checkString(
+          resp.contents as string,
+          `<a href="/assets/dummy-pdf.pdf">some pdf</a>`
+        );
+        checkString(
+          resp.contents as string,
+          `<a href="/assets/dummy-pdf2.pdf">some pdf</a>`
+        );
+      });
+    });
+  });
+
+  describe("WHEN note contains markdown link to header on the same page", () => {
+    let resp: VFile;
+    const config = genPublishConfigWithAllPublicHierarchies();
+    beforeAll(async () => {
+      await runEngineTestV5(
+        async (opts) => {
+          resp = await createProc({
+            noteToRender: (await opts.engine.getNote(FNAME_ALPHA)).data!,
+            ...opts,
+            config,
+            fname: FNAME_ALPHA,
+            linkText: "[header one](#header-1)",
+          });
+        },
+        {
+          preSetupHook: ENGINE_HOOKS.setupLinks,
+          expect,
+        }
+      );
+    });
+
+    test("THEN the href value of the link is untouched", () => {
+      checkString(
+        resp.contents as string,
+        `<a href="#header-1">header one</a>`
+      );
+    });
+  });
 
   describe("WHEN all notes are public", () => {
     const config = genPublishConfigWithAllPublicHierarchies();
-    const fname = fnameBeta;
+    const fname = FNAME_BETA;
 
     describe("AND WHEN wikilink", () => {
       let resp: VFile;
@@ -138,6 +265,11 @@ describe("GIVEN dendronPub", () => {
         await runEngineTestV5(
           async (opts) => {
             resp = await createProc({
+              noteToRender: (await opts.engine.getNote("beta")).data!,
+              parsingDependenciesByNoteProps: [
+                (await opts.engine.getNote("beta")).data!,
+                (await opts.engine.getNote("alpha")).data!,
+              ],
               ...opts,
               config,
               fname,
@@ -151,8 +283,8 @@ describe("GIVEN dendronPub", () => {
         );
       });
       test("THEN all links are rendered", async () => {
-        await verifyPublicLink(resp, fnameBeta);
-        await verifyPublicLink(resp, fnameAlpha);
+        await verifyPublicLink(resp, FNAME_BETA);
+        await verifyPublicLink(resp, FNAME_ALPHA);
       });
     });
 
@@ -163,6 +295,20 @@ describe("GIVEN dendronPub", () => {
         await runEngineTestV5(
           async (opts) => {
             resp = await createProc({
+              noteToRender: (await opts.engine.getNote("beta")).data!,
+              parsingDependenciesByNoteProps: [
+                await NoteTestUtilsV4.createNote({
+                  fname: taskNote,
+                  vault: opts.vaults[0],
+                  wsRoot: opts.wsRoot,
+                  custom: {
+                    status: "x",
+                    due: "2022-08-28",
+                    owner: "turing",
+                    priority: "high",
+                  },
+                }),
+              ],
               ...opts,
               config,
               fname,
@@ -202,7 +348,7 @@ describe("GIVEN dendronPub", () => {
   });
 
   describe("WHEN publish and private hierarchies", () => {
-    const fname = fnameBeta;
+    const fname = FNAME_BETA;
     const config = genPublishConfigWithPublicPrivateHierarchies();
 
     describe("AND WHEN noteRef", () => {
@@ -212,6 +358,13 @@ describe("GIVEN dendronPub", () => {
           await runEngineTestV5(
             async (opts) => {
               resp = await createProc({
+                noteToRender: (await opts.engine.getNote("beta")).data!,
+                parsingDependenciesByNoteProps: [
+                  (await opts.engine.getNote("beta")).data!,
+                  (
+                    await opts.engine.getNote("alpha")
+                  ).data!, // Alpha is referenced in the beta note
+                ],
                 ...opts,
                 config,
                 fname,
@@ -225,10 +378,10 @@ describe("GIVEN dendronPub", () => {
           );
         });
         test("THEN published note is rendered", async () => {
-          await verifyPublicNoteRef(resp, fnameBeta);
+          await verifyPublicNoteRef(resp, FNAME_BETA);
         });
         test("THEN private link in published note is hidden", async () => {
-          await verifyPrivateLink(resp, fnameAlpha);
+          await verifyPrivateLink(resp, FNAME_ALPHA);
         });
       });
 
@@ -238,6 +391,10 @@ describe("GIVEN dendronPub", () => {
           await runEngineTestV5(
             async (opts) => {
               resp = await createProc({
+                noteToRender: (await opts.engine.getNote("beta")).data!,
+                parsingDependenciesByNoteProps: [
+                  (await opts.engine.getNote("alpha")).data!,
+                ],
                 ...opts,
                 config,
                 fname,
@@ -262,6 +419,11 @@ describe("GIVEN dendronPub", () => {
         await runEngineTestV5(
           async (opts) => {
             resp = await createProc({
+              noteToRender: (await opts.engine.getNote("beta")).data!,
+              parsingDependenciesByNoteProps: [
+                (await opts.engine.getNote("beta")).data!,
+                (await opts.engine.getNote("alpha")).data!,
+              ],
               ...opts,
               config,
               fname,
@@ -275,10 +437,10 @@ describe("GIVEN dendronPub", () => {
         );
       });
       test("THEN public link is rendered", async () => {
-        await verifyPublicLink(resp, fnameBeta);
+        await verifyPublicLink(resp, FNAME_BETA);
       });
       test("THEN private link is hidden", async () => {
-        await verifyPrivateLink(resp, fnameAlpha);
+        await verifyPrivateLink(resp, FNAME_ALPHA);
       });
     });
 
@@ -289,6 +451,11 @@ describe("GIVEN dendronPub", () => {
           async (opts) => {
             const vaultName = VaultUtils.getName(opts.vaults[0]);
             resp = await createProc({
+              noteToRender: (await opts.engine.getNote("beta")).data!,
+              parsingDependenciesByNoteProps: [
+                (await opts.engine.getNote("beta")).data!,
+                (await opts.engine.getNote("alpha")).data!,
+              ],
               ...opts,
               config,
               fname,
@@ -302,10 +469,10 @@ describe("GIVEN dendronPub", () => {
         );
       });
       test("THEN public link is rendered", async () => {
-        await verifyPublicLink(resp, fnameBeta);
+        await verifyPublicLink(resp, FNAME_BETA);
       });
       test("THEN private link is hidden", async () => {
-        await verifyPrivateLink(resp, fnameAlpha);
+        await verifyPrivateLink(resp, FNAME_ALPHA);
       });
     });
   });
@@ -313,46 +480,47 @@ describe("GIVEN dendronPub", () => {
 
 describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
   describe("prefix", () => {
-    testWithEngine("imagePrefix", async ({ engine, vaults }) => {
-      const out = proc(
-        engine,
-        {
+    testWithEngine("imagePrefix", async ({ wsRoot, vaults, engine }) => {
+      const out = proc({
+        noteToRender: (await engine.getNote("foo")).data!,
+        dendron: {
           fname: "foo",
           dest: DendronASTDest.HTML,
           vault: vaults[0],
-          config: engine.config,
+          config: DConfig.readConfigSync(wsRoot),
         },
-        {
+        opts: {
           assetsPrefix: "bond/",
-        }
-      ).processSync(`![alt-text](image-url.jpg)`);
+        },
+      }).processSync(`![alt-text](image-url.jpg)`);
       await checkVFile(out, '<img src="/image-url.jpg" alt="alt-text">');
     });
 
     testWithEngine(
       "imagePrefix with forward slash",
-      async ({ engine, vaults }) => {
-        const out = proc(
-          engine,
-          {
+      async ({ wsRoot, vaults, engine }) => {
+        const out = proc({
+          noteToRender: (await engine.getNote("foo")).data!,
+          dendron: {
             fname: "foo",
             dest: DendronASTDest.HTML,
             vault: vaults[0],
-            config: engine.config,
+            config: DConfig.readConfigSync(wsRoot),
           },
-          {
+          opts: {
             assetsPrefix: "/bond/",
-          }
-        ).processSync(`![alt-text](/image-url.jpg)`);
+          },
+        }).processSync(`![alt-text](/image-url.jpg)`);
         await checkVFile(out, '<img src="/image-url.jpg" alt="alt-text">');
       }
     );
   });
 
-  testWithEngine("in IMPORT mode", async ({ engine, vaults, wsRoot }) => {
+  testWithEngine("in IMPORT mode", async ({ vaults, wsRoot }) => {
+    const config = DConfig.readConfigSync(wsRoot);
     const proc = MDUtilsV5.procRemarkParse(
       { mode: ProcMode.IMPORT },
-      { dest: DendronASTDest.HTML, engine, wsRoot, vault: vaults[0] }
+      { dest: DendronASTDest.HTML, wsRoot, vault: vaults[0], config }
     );
     const out = await proc.process("Testing publishing in IMPORT mode");
     await checkVFile(out, "Testing publishing in IMPORT mode");
@@ -365,17 +533,16 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
       flavor: ProcFlavor;
     }) => {
       const { engine, vaults, flavor } = opts;
-      const out = await proc(
-        engine,
-        {
+      const out = await proc({
+        noteToRender: (await engine.getNote("has.fmtags")).data!,
+        dendron: {
           fname: "has.fmtags",
           dest: DendronASTDest.HTML,
           vault: vaults[0],
-          config: engine.config,
+          config: DConfig.readConfigSync(engine.wsRoot),
         },
-        undefined,
-        flavor
-      ).process("has fm tags");
+        flavor,
+      }).process("has fm tags");
       return out;
     };
 
@@ -385,17 +552,16 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
       flavor: ProcFlavor;
     }) => {
       const { engine, vaults, flavor } = opts;
-      const out = await proc(
-        engine,
-        {
+      const out = await proc({
+        noteToRender: (await engine.getNote("no.fmtags")).data!,
+        dendron: {
           fname: "no.fmtags",
           dest: DendronASTDest.HTML,
           vault: vaults[0],
-          config: engine.config,
+          config: DConfig.readConfigSync(engine.wsRoot),
         },
-        undefined,
-        flavor
-      ).process("has no fm tags");
+        flavor,
+      }).process("has no fm tags");
       return out;
     };
 
@@ -571,12 +737,20 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
   describe("note reference", () => {
     test("basic", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [(await engine.getNote("foo")).data!];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
           }).process("![[foo]]");
           await checkVFile(out, 'a href="foo"');
         },
@@ -600,12 +774,36 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("WHEN refs are right on the next line THEN render all", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ engine, wsRoot, vaults }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "foo1",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "foo2",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "foo3",
+              wsRoot,
+              vault: vaults[0],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
           }).process("![[foo1]]\n![[foo2]]\n![[foo3]]");
           await checkVFile(out, 'a href="foo1', 'a href="foo2', 'a href="foo3');
         },
@@ -639,12 +837,31 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("WHEN refs are back to back THEN render all", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "foo1",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "foo2",
+              wsRoot,
+              vault: vaults[0],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
           }).process("![[foo1]] ![[foo2]]");
           await checkVFile(out, 'a href="foo1', 'a href="foo2');
         },
@@ -673,14 +890,20 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("nonexistent", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
           }).process("![[bar]]");
-          await checkVFile(out, "No note with name bar found");
+          await checkVFile(
+            out,
+            "No note with name bar found in cache during parsing."
+          );
         },
         {
           preSetupHook: async ({ wsRoot, vaults }) => {
@@ -702,12 +925,28 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("assume vault", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "foo",
+              body: "foo in vault2",
+              wsRoot,
+              vault: vaults[1],
+            }),
+          ];
+
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
           }).process("![[foo]]");
           await checkVFile(out, "foo in vault2");
         },
@@ -732,12 +971,33 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("ok: with vault prefix", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "foo",
+              body: "foo in vault1",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "foo",
+              body: "foo in vault2",
+              wsRoot,
+              vault: vaults[1],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
           }).process("![[dendron://vault2/foo]]");
           await checkVFile(out, "foo in vault2");
           await checkNotInVFile(out, "foo in vault1");
@@ -769,14 +1029,20 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("fail: with vault prefix", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
           }).process("![[dendron://vault2/bar]]");
-          await checkVFile(out, "No note with name bar found in vault vault2");
+          await checkVFile(
+            out,
+            "No note with name bar found in cache during parsing."
+          );
         },
         {
           preSetupHook: async ({ wsRoot, vaults }) => {
@@ -805,12 +1071,34 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("ok: wildcard", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "bar.one",
+              body: "bar one",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "bar.two",
+              body: "bar two",
+              wsRoot,
+              vault: vaults[0],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            noteCacheForRenderDict,
+            wsRoot,
           }).process("![[bar.*]]");
           await checkVFile(out, 'a href="bar.one');
           await checkVFile(out, 'a href="bar.two');
@@ -842,12 +1130,16 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("fail: wildcard no match", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config: DConfig.readConfigSync(wsRoot),
+            },
+            wsRoot,
           }).process("![[baz.*]]");
           await checkVFile(
             out,
@@ -881,16 +1173,38 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("ok: ambiguous but duplicateNoteBehavior set", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            vault: vaults[0],
-            config: engine.config,
+        async ({ wsRoot, vaults, engine }) => {
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "dupe",
+              genRandomId: true,
+              body: "dupe in vault1",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "dupe",
+              genRandomId: true,
+              body: "dupe in vault2",
+              wsRoot,
+              vault: vaults[1],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          const config = DConfig.readConfigSync(wsRoot);
+          const out = await proc({
+            noteToRender: (await engine.getNote("ref")).data!,
+            dendron: {
+              fname: "ref",
+              dest: DendronASTDest.HTML,
+              vault: vaults[0],
+              config,
+            },
+            noteCacheForRenderDict,
           }).process("![[dupe]]");
-          const publishingConfig = ConfigUtils.getPublishingConfig(
-            engine.config
-          );
+          const publishingConfig = ConfigUtils.getPublishingConfig(config);
           const dupNoteVaultPayload = publishingConfig.duplicateNoteBehavior
             ?.payload as string[];
           await checkVFile(out as any, `dupe in ${dupNoteVaultPayload[0]}`);
@@ -924,15 +1238,38 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     test("fail: ambiguous", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
-          ConfigUtils.unsetPublishProp(engine.config, "duplicateNoteBehavior");
-          const out = await proc(engine, {
-            fname: "ref",
-            dest: DendronASTDest.HTML,
-            shouldApplyPublishRules: true,
-            vault: vaults[0],
-            config: engine.config,
-          }).process("![[dupe]]");
+        async ({ wsRoot, vaults, engine }) => {
+          const config = DConfig.readConfigSync(wsRoot);
+          const references: NoteProps[] = [
+            await NoteTestUtilsV4.createNote({
+              fname: "dupe",
+              genRandomId: true,
+              body: "dupe in vault1",
+              wsRoot,
+              vault: vaults[0],
+            }),
+            await NoteTestUtilsV4.createNote({
+              fname: "dupe",
+              genRandomId: true,
+              body: "dupe in vault2",
+              wsRoot,
+              vault: vaults[1],
+            }),
+          ];
+          const noteCacheForRenderDict =
+            NoteDictsUtils.createNoteDicts(references);
+
+          ConfigUtils.unsetPublishProp(config, "duplicateNoteBehavior");
+          const out = await MDUtilsV5.procRehypeFull(
+            {
+              noteToRender: (await engine.getNote("ref")).data!,
+              fname: "ref",
+              vault: vaults[0],
+              config,
+              noteCacheForRenderDict,
+            },
+            { flavor: ProcFlavor.PUBLISHING }
+          ).process("![[dupe]]");
           await checkVFile(
             out,
             "Error rendering note reference. There are multiple notes with the name"
@@ -968,19 +1305,72 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
   describe("enablePrettyRefs", () => {
     testWithEngine(
-      "config.publishing.enablePrettyRef: true",
-      async ({ engine, vaults }) => {
+      "config.publishing.enablePrettyRef: true (enableExperimentalIFrameNoteRef)",
+      async ({ vaults, engine }) => {
         const config = ConfigUtils.genDefaultConfig();
         ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
         ConfigUtils.setPublishProp(config, "siteHierarchies", ["foo"]);
         ConfigUtils.setPublishProp(config, "siteRootDir", "foo");
         ConfigUtils.setPublishProp(config, "enablePrettyRefs", true);
+
+        config.dev = {
+          ...config.dev,
+          enableExperimentalIFrameNoteRef: true,
+        };
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
         const resp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
             fname: "foo",
             vault: vaults[0],
             config,
+            noteCacheForRenderDict,
+            vaults,
+          },
+          { flavor: ProcFlavor.PUBLISHING }
+        ).process(`![[bar]]`);
+        expect(resp).toMatchSnapshot();
+        expect(
+          await AssertUtils.assertInString({
+            body: resp.contents as string,
+            match: ["iframe"],
+          })
+        ).toBeTruthy();
+      },
+      { preSetupHook: ENGINE_HOOKS.setupBasic }
+    );
+
+    testWithEngine(
+      "config.publishing.enablePrettyRef: true",
+      async ({ vaults, engine }) => {
+        const config = ConfigUtils.genDefaultConfig();
+        ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
+        ConfigUtils.setPublishProp(config, "siteHierarchies", ["foo"]);
+        ConfigUtils.setPublishProp(config, "siteRootDir", "foo");
+        ConfigUtils.setPublishProp(config, "enablePrettyRefs", true);
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
+        const resp = await MDUtilsV5.procRehypeFull(
+          {
+            noteToRender: (await engine.getNote("foo")).data!,
+            fname: "foo",
+            vault: vaults[0],
+            config,
+            noteCacheForRenderDict,
+            vaults,
           },
           { flavor: ProcFlavor.PUBLISHING }
         ).process(`![[bar]]`);
@@ -997,17 +1387,27 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     testWithEngine(
       "config.publishing.enablePrettyRef: false",
-      async ({ engine, vaults }) => {
+      async ({ vaults, engine }) => {
         const config = ConfigUtils.genDefaultConfig();
         ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
         ConfigUtils.setPublishProp(config, "siteHierarchies", ["foo"]);
         ConfigUtils.setPublishProp(config, "siteRootDir", "foo");
         ConfigUtils.setPublishProp(config, "enablePrettyRefs", false);
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
         const resp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
+            noteCacheForRenderDict,
             fname: "foo",
             vault: vaults[0],
+            vaults,
             config,
           },
           { flavor: ProcFlavor.PUBLISHING }
@@ -1015,7 +1415,7 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
         expect(resp).toMatchSnapshot();
         expect(
           await AssertUtils.assertInString({
-            body: resp.contents as string,
+            body: `<p>bar body</p>`,
             nomatch: ["portal-container"],
           })
         ).toBeTruthy();
@@ -1025,18 +1425,28 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     testWithEngine(
       "config.enablePrettyRef: true",
-      async ({ engine, vaults }) => {
+      async ({ vaults, engine }) => {
         const config = ConfigUtils.genDefaultConfig();
         ConfigUtils.setPreviewProps(config, "enablePrettyRefs", true);
         ConfigUtils.setPublishProp(config, "siteHierarchies", ["foo"]);
         ConfigUtils.setPublishProp(config, "siteRootDir", "foo");
         ConfigUtils.setPublishProp(config, "enablePrettyRefs", false);
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
         const resp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
             fname: "foo",
             vault: vaults[0],
             config,
+            noteCacheForRenderDict,
+            vaults,
           },
           { flavor: ProcFlavor.PREVIEW }
         ).process(`![[bar]]`);
@@ -1053,17 +1463,27 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
     testWithEngine(
       "config.enablePrettyRef: false",
-      async ({ engine, vaults }) => {
+      async ({ vaults, engine }) => {
         const config = ConfigUtils.genDefaultConfig();
         ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
         ConfigUtils.setPublishProp(config, "siteHierarchies", ["foo"]);
         ConfigUtils.setPublishProp(config, "siteRootDir", "foo");
         ConfigUtils.setPublishProp(config, "enablePrettyRefs", false);
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
         const resp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
+            noteCacheForRenderDict,
             fname: "foo",
             vault: vaults[0],
+            vaults,
             config,
           },
           { flavor: ProcFlavor.PREVIEW }
@@ -1080,15 +1500,30 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
     );
 
     testWithEngine(
-      "enablePrettyRef defaults to true in both cases",
-      async ({ engine, vaults }) => {
+      "enablePrettyRef defaults to true in both cases (enableExperimentalIFrameNoteRef)",
+      async ({ vaults, engine }) => {
         const config = ConfigUtils.genDefaultConfig();
+
+        config.dev = {
+          ...config.dev,
+          enableExperimentalIFrameNoteRef: true,
+        };
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
         const previewResp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
             fname: "foo",
             vault: vaults[0],
             config,
+            noteCacheForRenderDict,
+            vaults,
           },
           { flavor: ProcFlavor.PREVIEW }
         ).process(`![[bar]]`);
@@ -1102,10 +1537,12 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
 
         const publishResp = await MDUtilsV5.procRehypeFull(
           {
-            engine,
+            noteToRender: (await engine.getNote("foo")).data!,
             fname: "foo",
             vault: vaults[0],
             config,
+            noteCacheForRenderDict,
+            vaults,
           },
           { flavor: ProcFlavor.PUBLISHING }
         ).process(`![[bar]]`);
@@ -1113,7 +1550,62 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
         expect(
           await AssertUtils.assertInString({
             body: publishResp.contents as string,
+            match: [
+              `<iframe class="noteref-iframe" src="/refs/bar---0" title="Reference to the note called Bar">Your browser does not support iframes.</iframe>`,
+            ],
+          })
+        ).toBeTruthy();
+      },
+      { preSetupHook: ENGINE_HOOKS.setupBasic }
+    );
+
+    testWithEngine(
+      "enablePrettyRef defaults to true in both cases",
+      async ({ vaults, engine }) => {
+        const config = ConfigUtils.genDefaultConfig();
+
+        const references: NoteProps[] = [
+          (await engine.getNote("bar")).data!,
+          (await engine.getNote("foo.ch1")).data!,
+        ];
+        const noteCacheForRenderDict =
+          NoteDictsUtils.createNoteDicts(references);
+
+        const previewResp = await MDUtilsV5.procRehypeFull(
+          {
+            noteToRender: (await engine.getNote("foo")).data!,
+            fname: "foo",
+            vault: vaults[0],
+            config,
+            noteCacheForRenderDict,
+            vaults,
+          },
+          { flavor: ProcFlavor.PREVIEW }
+        ).process(`![[bar]]`);
+        expect(previewResp).toMatchSnapshot();
+        expect(
+          await AssertUtils.assertInString({
+            body: previewResp.contents as string,
             match: ["portal-container"],
+          })
+        ).toBeTruthy();
+
+        const publishResp = await MDUtilsV5.procRehypeFull(
+          {
+            noteToRender: (await engine.getNote("foo")).data!,
+            fname: "foo",
+            vault: vaults[0],
+            config,
+            noteCacheForRenderDict,
+            vaults,
+          },
+          { flavor: ProcFlavor.PUBLISHING }
+        ).process(`![[bar]]`);
+        expect(publishResp).toMatchSnapshot();
+        expect(
+          await AssertUtils.assertInString({
+            body: publishResp.contents as string,
+            match: [`portal-container`],
           })
         ).toBeTruthy();
       },
@@ -1124,7 +1616,7 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
       describe("AND note overrides to false", () => {
         testWithEngine(
           "THEN renders without pretty refs",
-          async ({ engine, vaults }) => {
+          async ({ vaults, engine }) => {
             const config = ConfigUtils.genDefaultConfig();
             ConfigUtils.setPreviewProps(config, "enablePrettyRefs", true);
             ConfigUtils.setPublishProp(config, "siteHierarchies", [
@@ -1132,11 +1624,20 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
             ]);
             ConfigUtils.setPublishProp(config, "siteRootDir", "with-override");
             ConfigUtils.setPublishProp(config, "enablePrettyRefs", true);
+
+            const references: NoteProps[] = [
+              (await engine.getNote("bar")).data!,
+            ];
+            const noteCacheForRenderDict =
+              NoteDictsUtils.createNoteDicts(references);
+
             const resp = await MDUtilsV5.procRehypeFull(
               {
-                engine,
+                noteToRender: (await engine.getNote("with-override")).data!,
+                noteCacheForRenderDict,
                 fname: "with-override",
                 vault: vaults[0],
+                vaults,
                 config,
               },
               { flavor: ProcFlavor.PUBLISHING }
@@ -1144,7 +1645,7 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
             expect(resp).toMatchSnapshot();
             expect(
               await AssertUtils.assertInString({
-                body: resp.contents as string,
+                body: `<p>bar body</p>`,
                 nomatch: ["portal-container"],
               })
             ).toBeTruthy();
@@ -1174,7 +1675,7 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
       describe("AND note overrides to true", () => {
         testWithEngine(
           "THEN renders with pretty refs",
-          async ({ engine, vaults }) => {
+          async ({ vaults, engine }) => {
             const config = ConfigUtils.genDefaultConfig();
             ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
             ConfigUtils.setPublishProp(config, "siteHierarchies", [
@@ -1182,12 +1683,21 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
             ]);
             ConfigUtils.setPublishProp(config, "siteRootDir", "with-override");
             ConfigUtils.setPublishProp(config, "enablePrettyRefs", false);
+
+            const references: NoteProps[] = [
+              (await engine.getNote("bar")).data!,
+            ];
+            const noteCacheForRenderDict =
+              NoteDictsUtils.createNoteDicts(references);
+
             const resp = await MDUtilsV5.procRehypeFull(
               {
-                engine,
+                noteToRender: (await engine.getNote("with-override")).data!,
                 fname: "with-override",
                 vault: vaults[0],
                 config,
+                noteCacheForRenderDict,
+                vaults,
               },
               { flavor: ProcFlavor.PUBLISHING }
             ).process(`![[bar]]`);
@@ -1195,7 +1705,66 @@ describe("GIVEN dendronPub (old tests - need to be migrated)", () => {
             expect(
               await AssertUtils.assertInString({
                 body: resp.contents as string,
-                match: ["portal-container"],
+                match: [`portal-container`],
+              })
+            ).toBeTruthy();
+          },
+          {
+            preSetupHook: async (opts) => {
+              await ENGINE_HOOKS.setupBasic(opts);
+              await NoteTestUtilsV4.createNote({
+                fname: "with-override",
+                vault: opts.vaults[0],
+                wsRoot: opts.wsRoot,
+                props: {
+                  config: {
+                    global: {
+                      enablePrettyRefs: true,
+                    },
+                  },
+                },
+              });
+            },
+          }
+        );
+        testWithEngine(
+          "THEN renders with pretty refs (enableExperimentalIFrameNoteRef)",
+          async ({ vaults, engine }) => {
+            const config = ConfigUtils.genDefaultConfig();
+            ConfigUtils.setPreviewProps(config, "enablePrettyRefs", false);
+            ConfigUtils.setPublishProp(config, "siteHierarchies", [
+              "with-override",
+            ]);
+            ConfigUtils.setPublishProp(config, "siteRootDir", "with-override");
+            ConfigUtils.setPublishProp(config, "enablePrettyRefs", false);
+
+            config.dev = {
+              ...config.dev,
+              enableExperimentalIFrameNoteRef: true,
+            };
+
+            const references: NoteProps[] = [
+              (await engine.getNote("bar")).data!,
+            ];
+            const noteCacheForRenderDict =
+              NoteDictsUtils.createNoteDicts(references);
+
+            const resp = await MDUtilsV5.procRehypeFull(
+              {
+                noteToRender: (await engine.getNote("with-override")).data!,
+                fname: "with-override",
+                vault: vaults[0],
+                config,
+                noteCacheForRenderDict,
+                vaults,
+              },
+              { flavor: ProcFlavor.PUBLISHING }
+            ).process(`![[bar]]`);
+            expect(resp).toMatchSnapshot();
+            expect(
+              await AssertUtils.assertInString({
+                body: resp.contents as string,
+                match: [`iframe class="noteref-iframe" src="/refs/bar---0"`],
               })
             ).toBeTruthy();
           },

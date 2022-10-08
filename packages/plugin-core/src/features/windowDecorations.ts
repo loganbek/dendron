@@ -16,7 +16,7 @@ import {
   isDecorationHashTag,
   DecorationWikilink,
   DecorationTaskNote,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import {
   DecorationOptions,
@@ -32,6 +32,7 @@ import { Logger } from "../logger";
 import { CodeConfigKeys, DateTimeFormat } from "../types";
 import { delayedFrontmatterWarning } from "../utils/frontmatter";
 import { VSCodeUtils } from "../vsCodeUtils";
+import { DConfig } from "@dendronhq/common-server";
 
 /** Wait this long in miliseconds before trying to update decorations when a command forces a decoration update. */
 const DECORATION_UPDATE_DELAY = 100;
@@ -121,9 +122,8 @@ export async function updateDecorations(editor: TextEditor): Promise<{
   try {
     const ctx = "updateDecorations";
     const engine = ExtensionProvider.getEngine();
-    if (
-      ConfigUtils.getWorkspace(engine.config).enableEditorDecorations === false
-    ) {
+    const config = DConfig.readConfigSync(engine.wsRoot, true);
+    if (ConfigUtils.getWorkspace(config).enableEditorDecorations === false) {
       // Explicitly disabled, stop here.
       return {};
     }
@@ -131,7 +131,7 @@ export async function updateDecorations(editor: TextEditor): Promise<{
     // Only show decorations & warnings for notes
     let note: NoteProps | undefined;
     try {
-      note = ExtensionProvider.getWSUtils().getNoteFromDocument(
+      note = await ExtensionProvider.getWSUtils().getNoteFromDocument(
         editor.document
       );
       if (_.isUndefined(note)) return {};

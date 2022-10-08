@@ -6,19 +6,21 @@ import {
   DVault,
   isBlockAnchor,
   isLineAnchor,
+  isNotUndefined,
   NoteProps,
+  NotePropsMeta,
   NoteUtils,
   TAGS_HIERARCHY,
   USERS_HIERARCHY,
 } from "@dendronhq/common-all";
+import { WorkspaceUtils } from "@dendronhq/engine-server";
 import {
   HASHTAG_REGEX_BASIC,
   HASHTAG_REGEX_LOOSE,
   LinkUtils,
   RemarkUtils,
   USERTAG_REGEX_LOOSE,
-  WorkspaceUtils,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import { sort as sortPaths } from "cross-path-sort";
 import fs from "fs";
 import _ from "lodash";
@@ -49,7 +51,7 @@ export type FoundRefT = {
   matchText: string;
   isCandidate?: boolean;
   isFrontmatterTag?: boolean;
-  note: NoteProps;
+  note: NotePropsMeta;
 };
 
 const markdownExtRegex = /\.md$/i;
@@ -483,21 +485,38 @@ export const noteLinks2Locations = (note: NoteProps) => {
   return refs;
 };
 
-export async function findReferencesById(id: string) {
+export async function findReferencesById(opts: {
+  id: string;
+  isLinkCandidateEnabled?: boolean;
+}) {
+  const { id, isLinkCandidateEnabled } = opts;
   const refs: FoundRefT[] = [];
 
   const engine = ExtensionProvider.getEngine();
 
-  const note = engine.notes[id];
+  const note = (await engine.getNoteMeta(id)).data;
 
   if (!note) {
     return;
   }
 
-  const notesWithRefs = NoteUtils.getNotesWithLinkTo({
-    note,
-    notes: engine.notes,
-  });
+  let notesWithRefs;
+  if (isLinkCandidateEnabled) {
+    const engineNotes = await engine.findNotesMeta({ excludeStub: true });
+    notesWithRefs = NoteUtils.getNotesWithLinkTo({
+      note,
+      notes: engineNotes,
+    });
+  } else {
+    const notesRefIds = _.uniq(
+      note.links
+        .filter((link) => link.type === "backlink")
+        .map((link) => link.from.id)
+        .filter(isNotUndefined)
+    );
+
+    notesWithRefs = (await engine.bulkGetNotesMeta(notesRefIds)).data;
+  }
 
   _.forEach(notesWithRefs, (noteWithRef) => {
     const linksMatch = noteWithRef.links.filter(
@@ -583,13 +602,10 @@ export async function findReferencesById(id: string) {
 export const findReferences = async (fname: string): Promise<FoundRefT[]> => {
   const engine = ExtensionProvider.getEngine();
   // clean for anchor
-  const notes = NoteUtils.getNotesByFnameFromEngine({
-    fname,
-    engine,
-  });
+  const notes = await engine.findNotesMeta({ fname });
 
   const all = Promise.all(
-    notes.map((noteProps) => findReferencesById(noteProps.id))
+    notes.map((noteProps) => findReferencesById({ id: noteProps.id }))
   );
 
   return all.then((results) => {
@@ -670,4 +686,38 @@ function getOneIndexedFrontmatterEndingLineNumber(
   }
 
   return _.countBy(input.slice(0, offset))["\n"] + 1;
+}
+
+/**
+ * Given a {@link FoundRefT} and a list of anchor names,
+ * check if ref contains an anchor name to update.
+ * @param ref
+ * @param anchorNamesToUpdate
+ * @returns
+ */
+export function hasAnchorsToUpdate(
+  ref: FoundRefT,
+  anchorNamesToUpdate: string[]
+) {
+  const matchText = ref.matchText;
+  const wikiLinkRegEx = /\[\[(?<text>.+?)\]\]/;
+
+  const wikiLinkMatch = wikiLinkRegEx.exec(matchText);
+
+  if (wikiLinkMatch && wikiLinkMatch.groups?.text) {
+    let processed = wikiLinkMatch.groups.text;
+    if (processed.includes("|")) {
+      const [_alias, link] = processed.split("|");
+      processed = link;
+    }
+
+    if (processed.includes("#")) {
+      const [_fname, anchor] = processed.split("#");
+      return anchorNamesToUpdate.includes(anchor);
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
 }

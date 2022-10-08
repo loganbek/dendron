@@ -4,6 +4,7 @@ import {
   DendronSiteConfig,
   getStage,
 } from "@dendronhq/common-all";
+import { DConfig } from "@dendronhq/common-server";
 import {
   NextjsExportConfig,
   NextjsExportPod,
@@ -33,8 +34,7 @@ export class NextJSPublishUtils {
   static async prepareNextJSExportPod() {
     const ws = ExtensionProvider.getDWorkspace();
     const wsRoot = ws.wsRoot;
-    const engine = ws.engine;
-    const cmd = new ExportPodCommand();
+    const cmd = new ExportPodCommand(ExtensionProvider.getExtension());
 
     let nextPath = NextjsExportPodUtils.getNextRoot(wsRoot);
     const podConfig: NextjsExportConfig = {
@@ -63,7 +63,7 @@ export class NextJSPublishUtils {
       enrichedOpts = { podChoice, config: podConfig };
     }
     if (getStage() !== "prod") {
-      const config = engine.config;
+      const config = DConfig.readConfigSync(wsRoot);
       const siteConfig = ConfigUtils.getPublishingConfig(config);
       if (enrichedOpts?.config && !siteConfig.siteUrl) {
         _.set(

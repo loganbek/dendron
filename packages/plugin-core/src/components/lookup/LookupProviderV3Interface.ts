@@ -2,6 +2,7 @@ import { DendronQuickPickerV2 } from "./types";
 import { CancellationToken, CancellationTokenSource } from "vscode";
 import {
   DNodePropsQuickInputV2,
+  InvalidFilenameReason,
   NoteQuickInput,
   RespV2,
   SchemaQuickInput,
@@ -16,6 +17,15 @@ export type ILookupProviderV3 = {
     quickpick: DendronQuickPickerV2;
     cancellationToken: CancellationTokenSource;
   }): any;
+  shouldRejectItem?: (opts: { item: NoteQuickInput }) =>
+    | {
+        shouldReject: true;
+        reason: InvalidFilenameReason;
+      }
+    | {
+        shouldReject: false;
+        reason?: never;
+      };
 };
 
 export interface INoteLookupProviderFactory {
@@ -43,7 +53,16 @@ export type OnUpdatePickerItemsOpts = {
 };
 
 export type ILookupProviderOptsV3 = {
+  /**
+   * should provide `Create New`
+   */
   allowNewNote: boolean;
+  /**
+   * should provide `Create New with Template`
+   * `allowNewNote` must be true for this to take effect.
+   * false by default.
+   */
+  allowNewNoteWithTemplate?: boolean;
   noHidePickerOnAccept?: boolean;
   /** Forces to use picker value as is when constructing the query string. */
   forceAsIsPickerValueUsage?: boolean;
@@ -53,6 +72,7 @@ export type ILookupProviderOptsV3 = {
    * when (and only when) nothing is queried.
    */
   extraItems?: DNodePropsQuickInputV2[];
+  preAcceptValidators?: ((selectedItems: NoteQuickInput[]) => boolean)[];
 };
 
 export type NoteLookupProviderSuccessResp<T = never> = {

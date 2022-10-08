@@ -4,10 +4,18 @@ import {
   WorkspaceSettings,
   ConfigUtils,
   VaultUtils,
+  NoteUtils,
+  SchemaUtils,
 } from "@dendronhq/common-all";
-import { readYAML } from "@dendronhq/common-server";
+import {
+  DConfig,
+  LocalConfigScope,
+  note2File,
+  readYAML,
+  schemaModuleOpts2File,
+  writeYAML,
+} from "@dendronhq/common-server";
 import { FileTestUtils } from "@dendronhq/common-test-utils";
-import { DConfig } from "@dendronhq/engine-server";
 import { setupWS } from "@dendronhq/engine-test-utils";
 import fs from "fs-extra";
 import _ from "lodash";
@@ -87,7 +95,7 @@ suite("GIVEN VaultRemoveCommand", function () {
         wsName: remoteWsName,
       });
       stubQuickPick({ fsPath: remoteVaultName, workspace: remoteWsName });
-      await new VaultRemoveCommand().run();
+      await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
       const config = getConfig();
       expect(ConfigUtils.getVaults(config)).toEqual(vaults);
       expect(ConfigUtils.getWorkspace(config).workspaces).toEqual({});
@@ -108,7 +116,7 @@ suite("GIVEN VaultRemoveCommand", function () {
         // @ts-ignore
         data: vaultToRemove,
       });
-      await new VaultRemoveCommand().run();
+      await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
 
       // Shouldn't delete the actual files
       expect(
@@ -136,6 +144,67 @@ suite("GIVEN VaultRemoveCommand", function () {
     });
   });
 
+  describe("WHEN removing a vault when override is present", () => {
+    describeMultiWS(
+      "WHEN removing a regular vault",
+      {
+        timeout: 1e9,
+        preSetupHook: async ({ wsRoot }) => {
+          // // create a vault that we are adding as override
+          const vpath = path.join(wsRoot, "vault4");
+          fs.ensureDirSync(vpath);
+          const vault = { fsPath: vpath };
+
+          const note = NoteUtils.createRoot({
+            vault: { fsPath: vpath },
+            body: ["existing note"].join("\n"),
+          });
+          await note2File({ note, vault, wsRoot });
+          const schema = SchemaUtils.createRootModule({ vault });
+          await schemaModuleOpts2File(schema, vault.fsPath, "root");
+          const overridePath = DConfig.configOverridePath(
+            wsRoot,
+            LocalConfigScope.WORKSPACE
+          );
+          const overridePayload = {
+            workspace: {
+              vaults: [{ fsPath: "vault4" }],
+            },
+          };
+          writeYAML(overridePath, overridePayload);
+        },
+      },
+      () => {
+        test("THEN the vault is removed from dendron.yml, and override is not merged into config", async () => {
+          const { wsRoot, config } = ExtensionProvider.getDWorkspace();
+          const vaultToRemove = { fsPath: "vault2" };
+
+          // before remove, we have 4 vaults including the overriden one
+          expect(config.workspace.vaults.length).toEqual(4);
+          // before remove, dendron.yml has 3 vaults
+          const preRunConfig = DConfig.readConfigSync(wsRoot);
+          expect(preRunConfig.workspace.vaults.length).toEqual(3);
+
+          sinon.stub(VSCodeUtils, "showQuickPick").resolves({
+            // VaultRemoveCommand uses this internally, but TypeScript doesn't recognize it for the stub
+            // @ts-ignore
+            data: vaultToRemove,
+          });
+          await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
+
+          // after remove, we have 2 vaults in dendron.yml
+          const postRunConfig = DConfig.readConfigSync(wsRoot);
+          expect(postRunConfig.workspace.vaults.length).toEqual(2);
+
+          // after remove, we have 3 vaults including the overriden one
+          const postRunConfigWithOverride =
+            ExtensionProvider.getDWorkspace().config;
+          expect(postRunConfigWithOverride.workspace.vaults.length).toEqual(3);
+        });
+      }
+    );
+  });
+
   describeMultiWS(
     "WHEN removing a self contained vault",
     { selfContained: true },
@@ -148,7 +217,7 @@ suite("GIVEN VaultRemoveCommand", function () {
           // @ts-ignore
           data: vaultToRemove,
         });
-        await new VaultRemoveCommand().run();
+        await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
 
         // Shouldn't delete the actual files
         expect(
@@ -189,7 +258,7 @@ suite("GIVEN VaultRemoveCommand", function () {
           // @ts-ignore
           data: vaultToRemove,
         });
-        await new VaultRemoveCommand().run();
+        await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
 
         // Shouldn't delete the actual files
         expect(
@@ -218,52 +287,42 @@ suite("GIVEN VaultRemoveCommand", function () {
     }
   );
 
-  // This test has been skipped because the checks were not working with self
-  // contained vaults. This should be fixed later.
-  describeSingleWS.skip(
-    "WHEN there's only one vault left after remove",
-    {},
-    () => {
-      test("THEN duplicateNoteBehavior is omitted", async () => {
-        const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-        const configPath = DConfig.configPath(wsRoot as string);
+  describeSingleWS("WHEN there's only one vault left after remove", {}, () => {
+    test("THEN duplicateNoteBehavior is omitted", async () => {
+      const { wsRoot } = ExtensionProvider.getDWorkspace();
+      const configPath = DConfig.configPath(wsRoot as string);
 
-        // add a second vault
-        const vault2 = VaultUtils.getRelPath(vaults[1]);
-        const vpath2 = path.join(wsRoot, vault2);
+      // add a second vault
+      const vault2 = "vault2";
 
-        stubVaultInput({ sourceType: "local", sourcePath: vpath2 });
-        await new VaultAddCommand().run();
+      stubVaultInput({ sourceType: "local", sourcePath: vault2 });
+      await new VaultAddCommand().run();
 
-        const config = readYAML(configPath) as IntermediateDendronConfig;
-        // confirm that duplicateNoteBehavior option exists
-        const publishingConfig = ConfigUtils.getPublishingConfig(config);
-        expect(publishingConfig.duplicateNoteBehavior).toBeTruthy();
+      const config = readYAML(configPath) as IntermediateDendronConfig;
+      // confirm that duplicateNoteBehavior option exists
+      const publishingConfig = ConfigUtils.getPublishingConfig(config);
+      expect(publishingConfig.duplicateNoteBehavior).toBeTruthy();
 
-        const vaultsAfter = ExtensionProvider.getDWorkspace().vaults;
-        // @ts-ignore
-        VSCodeUtils.showQuickPick = () => {
-          return { data: vaultsAfter[1] };
-        };
-        await new VaultRemoveCommand().run();
+      const vaultsAfter = ExtensionProvider.getDWorkspace().vaults;
+      // @ts-ignore
+      VSCodeUtils.showQuickPick = () => {
+        return { data: vaultsAfter[1] };
+      };
+      await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
 
-        const configNew = readYAML(configPath) as IntermediateDendronConfig;
-        // confirm that duplicateNoteBehavior setting is gone
-        const publishingConfigNew = ConfigUtils.getPublishingConfig(configNew);
-        expect(publishingConfigNew.duplicateNoteBehavior).toBeFalsy();
-      });
-    }
-  );
-
-  // This test has been skipped because the checks were not working with self
-  // contained vaults. This should be fixed later.
-  describeSingleWS.skip("WHEN a published vault is removed", {}, () => {
+      const configNew = readYAML(configPath) as IntermediateDendronConfig;
+      // confirm that duplicateNoteBehavior setting is gone
+      const publishingConfigNew = ConfigUtils.getPublishingConfig(configNew);
+      expect(publishingConfigNew.duplicateNoteBehavior).toBeFalsy();
+    });
+  });
+  describeSingleWS("WHEN a published vault is removed", {}, () => {
     test("THEN the vault is removed from duplicateNoteBehavior payload", async () => {
       const { wsRoot } = ExtensionProvider.getDWorkspace();
       // add two more vaults
 
-      const vpath2 = path.join(wsRoot, "vault2");
-      const vpath3 = path.join(wsRoot, "vault3");
+      const vpath2 = "vault2";
+      const vpath3 = "vault3";
 
       stubVaultInput({ sourceType: "local", sourcePath: vpath2 });
       await new VaultAddCommand().run();
@@ -286,15 +345,15 @@ suite("GIVEN VaultRemoveCommand", function () {
       VSCodeUtils.showQuickPick = () => {
         return { data: vaultsAfter[1] };
       };
-      await new VaultRemoveCommand().run();
+      await new VaultRemoveCommand(ExtensionProvider.getExtension()).run();
 
       const config = DConfig.getRaw(wsRoot) as IntermediateDendronConfig;
 
       // check that "vault2" is gone from payload
       const publishingConfig = ConfigUtils.getPublishingConfig(config);
       expect(publishingConfig.duplicateNoteBehavior!.payload).toEqual([
-        vaultsAfter[0].fsPath,
-        vaultsAfter[2].fsPath,
+        VaultUtils.getName(vaultsAfter[2]),
+        VaultUtils.getName(vaultsAfter[0]),
       ]);
     });
   });
@@ -306,7 +365,9 @@ suite("GIVEN VaultRemoveCommand", function () {
         const args = {
           fsPath: path.join(wsRoot, vaults[1].fsPath),
         };
-        await new VaultRemoveCommand().run(args);
+        await new VaultRemoveCommand(ExtensionProvider.getExtension()).run(
+          args
+        );
         const config = getConfig();
         expect(ConfigUtils.getVaults(config)).toNotEqual(vaults);
         expect(
@@ -329,7 +390,9 @@ suite("GIVEN VaultRemoveCommand", function () {
         const args = {
           fsPath: path.join(wsRoot, remoteWsName, remoteVaultName),
         };
-        await new VaultRemoveCommand().run(args);
+        await new VaultRemoveCommand(ExtensionProvider.getExtension()).run(
+          args
+        );
         const config = getConfig();
         expect(ConfigUtils.getVaults(config)).toEqual(vaults);
         expect(ConfigUtils.getWorkspace(config).workspaces).toEqual({});

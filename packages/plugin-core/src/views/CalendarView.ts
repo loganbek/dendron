@@ -59,13 +59,15 @@ export class CalendarView implements vscode.WebviewViewProvider {
           data: msg.data,
         });
         const { id, fname } = msg.data;
-        let note: NoteProps | undefined;
         // eslint-disable-next-line no-cond-assign
-        if (id && (note = this._extension.getEngine().notes[id])) {
-          await new GotoNoteCommand(this._extension).execute({
-            qs: note.fname,
-            vault: note.vault,
-          });
+        if (id) {
+          const note = (await this._extension.getEngine().getNoteMeta(id)).data;
+          if (note) {
+            await new GotoNoteCommand(this._extension).execute({
+              qs: note.fname,
+              vault: note.vault,
+            });
+          }
         } else if (fname) {
           await new CreateDailyJournalCommand(this._extension).execute({
             fname,
@@ -78,9 +80,9 @@ export class CalendarView implements vscode.WebviewViewProvider {
         break;
       }
       case CalendarViewMessageType.messageDispatcherReady: {
-        const note = this._extension.wsUtils.getActiveNote();
+        const note = await this._extension.wsUtils.getActiveNote();
         if (note) {
-          this.refresh(note);
+          await this.refresh(note);
         }
         break;
       }
@@ -98,7 +100,7 @@ export class CalendarView implements vscode.WebviewViewProvider {
     }
   }
 
-  onOpenTextDocument(editor: vscode.TextEditor | undefined) {
+  async onOpenTextDocument(editor: vscode.TextEditor | undefined) {
     const document = editor?.document;
     if (_.isUndefined(document) || _.isUndefined(this._view)) {
       return;
@@ -122,7 +124,7 @@ export class CalendarView implements vscode.WebviewViewProvider {
       });
       return;
     }
-    const note = this._extension.wsUtils.getNoteFromDocument(document);
+    const note = await this._extension.wsUtils.getNoteFromDocument(document);
     if (note) {
       Logger.info({
         ctx,
@@ -133,7 +135,7 @@ export class CalendarView implements vscode.WebviewViewProvider {
     }
   }
 
-  public refresh(note?: NoteProps) {
+  public async refresh(note?: NoteProps) {
     if (this._view) {
       // When the last note is closed the note will be undefined and we do not
       // want to auto expand the calendar if there are no notes.
@@ -145,7 +147,7 @@ export class CalendarView implements vscode.WebviewViewProvider {
         data: {
           note,
           syncChangedNote: true,
-          activeNote: this._extension.wsUtils.getActiveNote(),
+          activeNote: await this._extension.wsUtils.getActiveNote(),
         },
         source: "vscode",
       } as OnDidChangeActiveTextEditorMsg);

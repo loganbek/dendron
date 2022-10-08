@@ -45,6 +45,7 @@ export class LaunchTutorialWorkspaceCommand extends BasicCommand<
       rootDirRaw: filePath,
       workspaceInitializer: new TutorialInitializer(),
       workspaceType: WorkspaceType.CODE,
+      EXPERIMENTAL_openNativeWorkspaceNoReload: false,
     });
   }
 }

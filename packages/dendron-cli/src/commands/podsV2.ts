@@ -3,7 +3,6 @@ import {
   DEngineClient,
   ERROR_SEVERITY,
   NoteProps,
-  NoteUtils,
   RespV3,
   URI,
   VaultUtils,
@@ -157,20 +156,20 @@ export async function enrichPodArgs(
   // get payload for selected export scope
   switch (configValues.exportScope) {
     case PodExportScope.Workspace:
-      payload = getPropsForWorkspaceScope(engine);
+      payload = await getPropsForWorkspaceScope(engine);
       break;
     case PodExportScope.Vault:
-      payload = getPropsForVaultScope({ engine, vaultName: args.vault });
+      payload = await getPropsForVaultScope({ engine, vaultName: args.vault });
       break;
     case PodExportScope.Note:
-      payload = getPropsForNoteScope({
+      payload = await getPropsForNoteScope({
         engine,
         vaultName: args.vault,
         fname: args.fname,
       });
       break;
     case PodExportScope.Hierarchy:
-      payload = getPropsForHierarchyScope({
+      payload = await getPropsForHierarchyScope({
         engine,
         hierarchy: args.hierarchy,
         vaultName: args.vault,
@@ -195,30 +194,30 @@ export async function enrichPodArgs(
  * @param engine
  * @returns all notes in workspace
  */
-const getPropsForWorkspaceScope = (engine: DEngineClient): NoteProps[] => {
-  return Object.values(engine.notes).filter((notes) => notes.stub !== true);
+const getPropsForWorkspaceScope = async (
+  engine: DEngineClient
+): Promise<NoteProps[]> => {
+  return engine.findNotes({ excludeStub: true });
 };
 
 /**
  *
  * @returns all notes in the vault
  */
-const getPropsForVaultScope = (opts: {
+const getPropsForVaultScope = async (opts: {
   engine: DEngineClient;
   vaultName?: string;
-}): NoteProps[] => {
+}): Promise<NoteProps[]> => {
   const { engine, vaultName } = opts;
   const vault = checkVaultArgs({ engine, vaultName });
-  return Object.values(engine.notes).filter(
-    (note) => note.stub !== true && VaultUtils.isEqualV2(note.vault, vault)
-  );
+  return engine.findNotes({ excludeStub: true, vault });
 };
 
-const getPropsForNoteScope = (opts: {
+const getPropsForNoteScope = async (opts: {
   engine: DEngineClient;
   vaultName?: string;
   fname?: string;
-}): NoteProps[] => {
+}): Promise<NoteProps[]> => {
   const { engine, fname, vaultName } = opts;
   const vault = checkVaultArgs({ engine, vaultName });
 
@@ -227,7 +226,7 @@ const getPropsForNoteScope = (opts: {
       message: "Please provide fname of note in --fname arg",
     });
   }
-  const note = NoteUtils.getNoteByFnameFromEngine({ fname, vault, engine });
+  const note = (await engine.findNotes({ fname, vault }))[0];
   if (!note)
     throw new DendronError({
       message: `Cannot find note with fname ${fname} in vault ${vault}`,
@@ -236,11 +235,11 @@ const getPropsForNoteScope = (opts: {
 };
 
 // returns notes within a hierarchy (for a specefic vault)
-const getPropsForHierarchyScope = (opts: {
+const getPropsForHierarchyScope = async (opts: {
   engine: DEngineClient;
   hierarchy?: string;
   vaultName?: string;
-}): NoteProps[] => {
+}): Promise<NoteProps[]> => {
   const { engine, hierarchy, vaultName } = opts;
   if (!hierarchy) {
     throw new DendronError({
@@ -248,12 +247,8 @@ const getPropsForHierarchyScope = (opts: {
     });
   }
   const vault = checkVaultArgs({ engine, vaultName });
-  return Object.values(engine.notes).filter(
-    (value) =>
-      value.fname.startsWith(hierarchy) &&
-      value.stub !== true &&
-      VaultUtils.isEqualV2(value.vault, vault)
-  );
+  const notes = await engine.findNotes({ excludeStub: true, vault });
+  return notes.filter((value) => value.fname.startsWith(hierarchy));
 };
 
 /**

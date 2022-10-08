@@ -1,13 +1,15 @@
 import {
+  CURRENT_TUTORIAL_TEST,
   DendronError,
   DWorkspaceV2,
+  ErrorUtils,
   getStage,
-  TutorialEvents,
-  VaultUtils,
-  CURRENT_TUTORIAL_TEST,
-  MAIN_TUTORIAL_TYPE_NAME,
-  TutorialNoteViewedPayload,
   isABTest,
+  MAIN_TUTORIAL_TYPE_NAME,
+  QuickstartTutorialTestGroups,
+  TutorialEvents,
+  TutorialNoteViewedPayload,
+  VaultUtils,
 } from "@dendronhq/common-all";
 import { file2Note, SegmentClient, vault2Path } from "@dendronhq/common-server";
 import {
@@ -18,12 +20,10 @@ import {
 import fs from "fs-extra";
 import path from "path";
 import * as vscode from "vscode";
-import { ShowPreviewCommand } from "../commands/ShowPreview";
+import { TogglePreviewCommand } from "../commands/TogglePreview";
 import { PreviewPanelFactory } from "../components/views/PreviewViewFactory";
-import { GLOBAL_STATE } from "../constants";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { Logger } from "../logger";
-import { StateService } from "../services/stateService";
 import { FeatureShowcaseToaster } from "../showcase/FeatureShowcaseToaster";
 import { ObsidianImportTip } from "../showcase/ObsidianImportTip";
 import { SurveyUtils } from "../survey";
@@ -35,6 +35,7 @@ import {
   OnWorkspaceCreationOpts,
   WorkspaceInitializer,
 } from "./workspaceInitializer";
+import { TogglePreviewLockCommand } from "../commands/TogglePreviewLock";
 
 /**
  * Workspace Initializer for the Tutorial Experience. Copies tutorial notes and
@@ -46,6 +47,9 @@ export class TutorialInitializer
 {
   static getTutorialType() {
     if (isABTest(CURRENT_TUTORIAL_TEST)) {
+      // NOTE: to force a tutorial group, uncomment the below code
+      // return QuickstartTutorialTestGroups.
+
       return CURRENT_TUTORIAL_TEST.getUserGroup(
         SegmentClient.instance().anonymousId
       );
@@ -93,7 +97,11 @@ export class TutorialInitializer
     const fsPath = document.uri.fsPath;
     const { vaults, wsRoot } = ws;
     const vault = VaultUtils.getVaultByFilePath({ vaults, wsRoot, fsPath });
-    const note = file2Note(fsPath, vault);
+    const resp = file2Note(fsPath, vault);
+    if (ErrorUtils.isErrorResp(resp)) {
+      throw resp.error;
+    }
+    const note = resp.data;
     const { fname, custom } = note;
     const { currentStep, totalSteps } = custom;
     return {
@@ -146,11 +154,19 @@ export class TutorialInitializer
       await vscode.window.showTextDocument(rootUri);
 
       if (getStage() !== "test") {
+        const preview = PreviewPanelFactory.create(
+          ExtensionProvider.getExtension()
+        );
         // TODO: HACK to wait for existing preview to be ready
-        setTimeout(() => {
-          new ShowPreviewCommand(
-            PreviewPanelFactory.create(ExtensionProvider.getExtension())
-          ).execute();
+        setTimeout(async () => {
+          await new TogglePreviewCommand(preview).execute();
+          if (
+            CURRENT_TUTORIAL_TEST?.getUserGroup(
+              SegmentClient.instance().anonymousId
+            ) === QuickstartTutorialTestGroups["quickstart-with-lock"]
+          ) {
+            await new TogglePreviewLockCommand(preview).execute();
+          }
         }, 1000);
       }
     } else {
@@ -163,22 +179,6 @@ export class TutorialInitializer
     MetadataService.instance().setActivationContext(
       WorkspaceActivationContext.normal
     );
-
-    // backfill global state to metadata
-    // this should be removed once we have sufficiently waited it out
-    const initialSurveyGlobalState =
-      await StateService.instance().getGlobalState(
-        GLOBAL_STATE.INITIAL_SURVEY_SUBMITTED
-      );
-
-    if (
-      initialSurveyGlobalState === "submitted" &&
-      MetadataService.instance().getMeta().initialSurveyStatus === undefined
-    ) {
-      MetadataService.instance().setInitialSurveyStatus(
-        InitialSurveyStatusEnum.submitted
-      );
-    }
 
     const metaData = MetadataService.instance().getMeta();
     const initialSurveySubmitted =
@@ -197,6 +197,20 @@ export class TutorialInitializer
       // This will only show if the user indicated they've used Obsidian in 'Prior Tools'
       toaster.showSpecificToast(new ObsidianImportTip());
       this.triedToShowImportToast = true;
+    }
+  }
+
+  async onWorkspaceActivate(opts: {
+    skipOpts: Partial<{
+      skipTreeView: boolean;
+    }>;
+  }) {
+    const skipOpts = opts.skipOpts;
+    if (!skipOpts?.skipTreeView) {
+      // for tutorial workspaces,
+      // we want the tree view to be focused
+      // so that new users can discover the tree view feature.
+      vscode.commands.executeCommand("dendron.treeView.focus");
     }
   }
 }

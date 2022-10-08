@@ -1,5 +1,5 @@
-import { tmpDir } from "@dendronhq/common-server";
-import { DConfig, Git } from "@dendronhq/engine-server";
+import { DConfig, tmpDir } from "@dendronhq/common-server";
+import { Git } from "@dendronhq/engine-server";
 import { ENGINE_HOOKS_MULTI, GitTestUtils } from "@dendronhq/engine-test-utils";
 import _ from "lodash";
 import path from "path";
@@ -25,7 +25,7 @@ suite("GIVEN VaultConvert", function () {
       let remote: string;
       before(async () => {
         const { vaults } = ExtensionProvider.getDWorkspace();
-        const cmd = new VaultConvertCommand();
+        const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
         sinon.stub(cmd, "gatherType").resolves("remote");
         sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
 
@@ -67,7 +67,7 @@ suite("GIVEN VaultConvert", function () {
       describe("AND converting that back to a local vault", () => {
         before(async () => {
           const { vaults } = ExtensionProvider.getDWorkspace();
-          const cmd = new VaultConvertCommand();
+          const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
           sinon.stub(cmd, "gatherType").resolves("local");
           sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
 
@@ -115,7 +115,7 @@ suite("GIVEN VaultConvert", function () {
       let remote: string;
       before(async () => {
         const { vaults } = ExtensionProvider.getDWorkspace();
-        const cmd = new VaultConvertCommand();
+        const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
         sinon.stub(cmd, "gatherType").resolves("remote");
         sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
         sinon.stub(cmd, "promptForFolderMove").resolves(true);
@@ -180,7 +180,7 @@ suite("GIVEN VaultConvert", function () {
       describe("AND converting that back to a local vault", () => {
         before(async () => {
           const { vaults } = ExtensionProvider.getDWorkspace();
-          const cmd = new VaultConvertCommand();
+          const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
           sinon.stub(cmd, "gatherType").resolves("local");
           sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
           sinon.stub(cmd, "promptForFolderMove").resolves(true);
@@ -237,7 +237,7 @@ suite("GIVEN VaultConvert", function () {
     () => {
       before(async () => {
         const { vaults } = ExtensionProvider.getDWorkspace();
-        const cmd = new VaultConvertCommand();
+        const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
         sinon.stub(cmd, "gatherType").resolves("remote");
         sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
 
@@ -261,7 +261,7 @@ suite("GIVEN VaultConvert", function () {
       describe("AND running the conversion command again", () => {
         before(async () => {
           const { vaults } = ExtensionProvider.getDWorkspace();
-          const cmd = new VaultConvertCommand();
+          const cmd = new VaultConvertCommand(ExtensionProvider.getExtension());
           sinon.stub(cmd, "gatherType").resolves("remote");
           sinon.stub(cmd, "gatherVault").resolves(vaults[0]);
 

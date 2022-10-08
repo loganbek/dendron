@@ -42,7 +42,7 @@ suite("PasteFile", function () {
         const fakeAsset = path.join(tmpRoot, "apples.pdf");
         fs.writeFileSync(fakeAsset, "data");
         clipboard.writeText(fakeAsset);
-        const note = engine.notes["foo"];
+        const note = (await engine.getNoteMeta("foo")).data!;
         const editor = await WSUtils.openNote(note);
         editor.selection = new vscode.Selection(8, 0, 8, 12);
 
@@ -57,10 +57,10 @@ suite("PasteFile", function () {
         expect(fs.existsSync(dstPath)).toBeTruthy();
         expect(fs.readFileSync(dstPath, { encoding: "utf8" })).toEqual("data");
         editor.selection = new vscode.Selection(8, 0, 8, 12);
-        const pos1 = new vscode.Position(8, 0);
-        const pos2 = new vscode.Position(8, 33);
+        const pos1 = new vscode.Position(7, 0);
+        const pos2 = new vscode.Position(7, 43);
         expect(editor.document.getText(new vscode.Range(pos1, pos2))).toEqual(
-          `[apples.pdf](${path.join("assets", "apples.pdf")})`
+          `foo body[apples.pdf](${path.join("assets", "apples.pdf")})`
         );
         done();
       },
@@ -77,7 +77,7 @@ suite("PasteFile", function () {
         const fakeAsset = path.join(tmpRoot, `${fname}.pdf`);
         fs.writeFileSync(fakeAsset, "data");
         clipboard.writeText(fakeAsset);
-        const note = engine.notes["foo"];
+        const note = (await engine.getNoteMeta("foo")).data!;
         const editor = await WSUtils.openNote(note);
         editor.selection = new vscode.Selection(8, 0, 8, 12);
 
@@ -92,10 +92,10 @@ suite("PasteFile", function () {
         expect(fs.existsSync(dstPath)).toBeTruthy();
         expect(fs.readFileSync(dstPath, { encoding: "utf8" })).toEqual("data");
         editor.selection = new vscode.Selection(8, 0, 8, 12);
-        const pos1 = new vscode.Position(8, 0);
-        const pos2 = new vscode.Position(8, 50);
+        const pos1 = new vscode.Position(7, 0);
+        const pos2 = new vscode.Position(7, 50);
         expect(editor.document.getText(new vscode.Range(pos1, pos2))).toEqual(
-          `[red-apples.pdf](${path.join("assets", cleanFileName)})`
+          `foo body[red-apples.pdf](${path.join("assets", cleanFileName)})`
         );
         done();
       },

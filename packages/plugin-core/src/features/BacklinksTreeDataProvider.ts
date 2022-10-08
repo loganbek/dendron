@@ -1,18 +1,18 @@
 import {
   assertUnreachable,
+  BacklinkPanelSortOrder,
   DateFormatUtil,
   DendronASTDest,
+  EngineEventEmitter,
   NoteUtils,
   ProcFlavor,
   VSCodeEvents,
 } from "@dendronhq/common-all";
-import {
-  BacklinkPanelSortOrder,
-  EngineEventEmitter,
-  MDUtilsV5,
-  MetadataService,
-} from "@dendronhq/engine-server";
+import { DConfig } from "@dendronhq/common-server";
+import { MetadataService } from "@dendronhq/engine-server";
+import { MDUtilsV5 } from "@dendronhq/unified";
 import * as Sentry from "@sentry/node";
+import fs from "fs";
 import _, { Dictionary } from "lodash";
 import path from "path";
 import {
@@ -36,7 +36,6 @@ import { findReferencesById, FoundRefT, sortPaths } from "../utils/md";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { WSUtilsV2 } from "../WSUtilsV2";
 import { Backlink, BacklinkTreeItemType } from "./Backlink";
-import fs from "fs";
 
 /**
  * Provides the data to support the backlinks tree view panel
@@ -139,7 +138,7 @@ export default class BacklinksTreeDataProvider
   public async getChildren(element?: Backlink): Promise<Backlink[]> {
     try {
       // TODO: Make the backlinks panel also work when preview is the active editor.
-      const activeNote = WSUtilsV2.instance().getActiveNote();
+      const activeNote = await WSUtilsV2.instance().getActiveNote();
 
       if (!activeNote) {
         return [];
@@ -326,7 +325,10 @@ export default class BacklinksTreeDataProvider
     isLinkCandidateEnabled: boolean | undefined,
     sortOrder: BacklinkPanelSortOrder
   ): Promise<Backlink[]> {
-    const references = await findReferencesById(noteId);
+    const references = await findReferencesById({
+      id: noteId,
+      isLinkCandidateEnabled,
+    });
     const referencesByPath = _.groupBy(
       // Exclude self-references:
       _.filter(references, (ref) => ref.note?.id !== noteId),
@@ -370,7 +372,7 @@ export default class BacklinksTreeDataProvider
       const references = referencesByPath[pathParam];
 
       const backlink = Backlink.createNoteLevelBacklink(
-        _.trimEnd(path.basename(pathParam), path.extname(pathParam)),
+        path.basename(pathParam, path.extname(pathParam)),
         references
       );
 
@@ -531,7 +533,7 @@ _updated: ${DateFormatUtil.formatDate(noteProps.updated)}_`
   ): Promise<string> {
     const proc = MDUtilsV5.procRemarkFull(
       {
-        engine: ExtensionProvider.getEngine(),
+        noteToRender: ref.note,
         fname: ref.note.fname,
         vault: ref.note.vault,
         dest: DendronASTDest.MD_REGULAR,
@@ -548,6 +550,10 @@ _updated: ${DateFormatUtil.formatDate(noteProps.updated)}_`
             },
           },
         },
+        config: DConfig.readConfigSync(
+          ExtensionProvider.getDWorkspace().wsRoot,
+          true
+        ),
       },
       {
         flavor: ProcFlavor.BACKLINKS_PANEL_HOVER,

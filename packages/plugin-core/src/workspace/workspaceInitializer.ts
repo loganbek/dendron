@@ -26,4 +26,16 @@ export type WorkspaceInitializer = {
    * Invoked after the workspace has been opened. Perform any operations such as re-arranging the layout.
    */
   onWorkspaceOpen?(opts: { ws: DWorkspaceV2 }): Promise<void>;
+
+  /**
+   * Invoked after the workspace has been activated.
+   * @param opts
+   */
+  onWorkspaceActivate?(opts: {
+    skipOpts:
+      | Partial<{
+          skipTreeView: boolean;
+        }>
+      | undefined;
+  }): Promise<void>;
 };

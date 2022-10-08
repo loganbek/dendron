@@ -1,5 +1,6 @@
 import _ from "lodash";
-import { LegacyLookupSelectionType, NoteProps } from "../..";
+import { NoteProps, NotePropsMeta } from "../..";
+import { LegacyLookupSelectionType } from "../dendronConfigLegacy";
 import { JournalConfig } from "./journal";
 import { NoteAddBehaviorEnum } from "./types";
 
@@ -68,7 +69,9 @@ export type TaskNoteProps = {
 };
 
 export class TaskNoteUtils {
-  static isTaskNote(note: NoteProps): note is NoteProps & TaskNoteProps {
+  static isTaskNote(
+    note: NotePropsMeta
+  ): note is NotePropsMeta & TaskNoteProps {
     for (const prop of TASK_NOTE_PROP_KEYS) {
       if (note.custom !== undefined && note.custom[prop] !== undefined)
         return true;

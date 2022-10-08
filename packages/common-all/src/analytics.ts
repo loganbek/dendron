@@ -71,6 +71,16 @@ export enum ConfirmStatus {
   rejected = "rejected",
 }
 
+export type RefactoringCommandUsedPayload = {
+  command: string;
+  numVaults: number;
+  traits: string[];
+  numChildren: number;
+  numLinks: number;
+  numChars: number;
+  noteDepth: number;
+};
+
 export enum ExtensionEvents {
   VimExtensionInstalled = "Vim_Extension_Installed",
   IncompatibleExtensionsWarned = "Incompatible_Extensions_Warned",
@@ -80,6 +90,9 @@ export enum ExtensionEvents {
   ShowKeybindingConflictRejected = "Show_Keybinding_Conflict_Rejected",
   DeprecationNoticeShow = "DeprecationNoticeShow",
   DeprecationNoticeAccept = "DeprecationNoticeAccept",
+  LocalhostBlockedNotified = "LocalhostBlocked_Notified",
+  LocalhostBlockedAccepted = "LocalhostBlocked_Accepted",
+  LocalhostBlockedRejected = "LocalhostBlocked_Rejected",
 }
 
 export enum LookupEvents {
@@ -136,11 +149,14 @@ export enum ConfigEvents {
   MissingSelfContainedVaultsMessageAccept = "MissingSelfContainedVaultsMessageAccept",
   OutdatedSeedVaultMessageShow = "OutdatedSeedVaultMessageShow",
   OutdatedSeedVaultMessageAccept = "OutdatedSeedVaultMessageAccept",
+  ConfigChangeDetected = "ConfigChangeDetected",
 }
 
 export enum MigrationEvents {
   MigrationSucceeded = "Migration_Succeeded",
   MigrationFailed = "Migration_Failed",
+  ManualUpgradeMessageShow = "ManualUpgradeMessageShow",
+  ManualUpgradeMessageConfirm = "ManualUpgradeMessageConfirm",
 }
 
 export enum ContextualUIEvents {
@@ -154,6 +170,7 @@ export enum WorkspaceEvents {
   AutoFix = "AutoFix",
   DuplicateNoteFound = "DuplicateNoteFound",
   TransitiveDepsWarningShow = "TransitiveDepsWarningShow",
+  MultipleTelemetryIdsDetected = "MultipleTelemetryIdsDetected",
 }
 
 export enum NativeWorkspaceEvents {
@@ -162,15 +179,23 @@ export enum NativeWorkspaceEvents {
 
 export enum EngagementEvents {
   NoteViewed = "NoteViewed",
+  NoteScrolled = "NoteScrolled",
   EngineStateChanged = "EngineStateChanged",
   AdditionalNoteFromMeetingNoteCreated = "AdditionalNoteFromMeetingNoteCreated",
   TemplateApplied = "TemplateApplied",
+  RefactoringCommandUsed = "RefactoringCommandUsed",
+}
+
+export enum NoteScrolledSource {
+  EDITOR = "EDITOR",
+  PREVIEW = "PREVIEW",
 }
 
 export enum AppNames {
   CODE = "vscode",
   CLI = "cli",
   EXPRESS_SERVER = "express",
+  CODE_WEB = "vscode-web",
 }
 
 export enum GraphEvents {
@@ -199,3 +224,72 @@ export const DendronEvents = {
   GraphEvents,
   TreeViewEvents,
 };
+
+/**
+ * User Profile.
+ */
+type UserProfileProps = {
+  /**
+   * The number of notes in the workspace
+   */
+  numNotes?: number;
+  /**
+   * The current A/B test groups the user is participating in
+   */
+  splitTests?: string[];
+  /**
+   * The role of user. Retrieved from initial survey.
+   */
+  role?: string;
+  /**
+   * The use case of Dendron for the user. Retrieved from initial survey.
+   */
+  useCases?: string[];
+  /**
+   * The context Dendron is used for the user. Retrieved from initial survey.
+   */
+  useContext?: string;
+  /**
+   * Whether the user has intent for publishing. If so, how. Retrieved from initial survey.
+   */
+  publishingUseCase?: string;
+  /**
+   * Prior tools the user has used before Dendron. Retrieved from initial survey.
+   */
+  priorTools?: string[];
+  /**
+   * Email of user. Retrieved from initial survey.
+   */
+  email?: string;
+
+  /**
+   * Did the user express interest in using Dendron for a team?
+   */
+  teamIntent?: boolean;
+};
+
+// platform props
+export type VSCodeProps = {
+  type: AppNames.CODE;
+  ideVersion: string;
+  ideFlavor: string;
+} & UserProfileProps;
+
+// platform identify props
+export type VSCodeIdentifyProps = {
+  appVersion: string;
+  appHost: string;
+  userAgent: string;
+  isNewAppInstall: boolean;
+  isTelemetryEnabled: boolean;
+  language: string;
+  machineId: string;
+  shell: string;
+} & VSCodeProps;
+
+export type CLIProps = {
+  type: AppNames.CLI;
+  cliVersion: string;
+} & UserProfileProps;
+
+export type CLIIdentifyProps = CLIProps;

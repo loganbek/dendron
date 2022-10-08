@@ -1,11 +1,10 @@
-import { NoteProps, NoteUtils, VaultUtils } from "@dendronhq/common-all";
+import { NoteProps, NotePropsMeta, VaultUtils } from "@dendronhq/common-all";
 import { NoteTestUtilsV4 } from "@dendronhq/common-test-utils";
 import { before, beforeEach, describe, it } from "mocha";
 import path from "path";
 import sinon from "sinon";
 import * as vscode from "vscode";
 import {
-  LinkType,
   PreviewLinkHandler,
   ShowPreviewAssetOpener,
 } from "../../components/views/PreviewLinkHandler";
@@ -18,6 +17,7 @@ import { describeMultiWS, setupBeforeAfter } from "../testUtilsV3";
 import fs from "fs-extra";
 import { tmpDir } from "@dendronhq/common-server";
 import _ from "lodash";
+import { LinkType } from "../../components/views/IPreviewLinkHandler";
 
 suite("PreviewLinkHandler", () => {
   const ctx: vscode.ExtensionContext = setupBeforeAfter(this, {
@@ -69,14 +69,12 @@ suite("PreviewLinkHandler", () => {
       },
     },
     () => {
-      let note: NoteProps;
+      let note: NotePropsMeta;
       beforeEach(async () => {
         const { engine, vaults } = ExtensionProvider.getDWorkspace();
-        note = NoteUtils.getNoteByFnameFromEngine({
-          fname: "root",
-          engine,
-          vault: vaults[0],
-        })!;
+        note = (
+          await engine.findNotesMeta({ fname: "root", vault: vaults[0] })
+        )[0];
         expect(note).toBeTruthy();
         await ExtensionProvider.getWSUtils().openNote(note);
       });

@@ -5,9 +5,10 @@ import {
   NotePropsByIdDict,
   stringifyError,
   NoteUtils,
-  ConfigGetPayload,
   NoteFnameDictUtils,
   NoteDictsUtils,
+  IntermediateDendronConfig,
+  SchemaModuleDict,
 } from "@dendronhq/common-all";
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import _ from "lodash";
@@ -31,6 +32,7 @@ export const initNotes = createAsyncThunk(
     });
     logger.info({ state: "pre:workspaceSync" });
     const resp = await api.workspaceSync({ ws });
+    const schemaQueryResp = await api.schemaQuery({ qs: "*" });
     logger.info({ state: "post:workspaceSync" });
     if (resp.error) {
       dispatch(setError(stringifyError(resp.error)));
@@ -38,7 +40,14 @@ export const initNotes = createAsyncThunk(
     }
     const data = resp.data!;
     logger.info({ state: "pre:setNotes" });
-    dispatch(setFromInit(data));
+
+    const schemaDict: SchemaModuleDict = {};
+
+    schemaQueryResp.data?.map((ent) => {
+      schemaDict[ent.root.id] = ent;
+    });
+
+    dispatch(setFromInit({ ...data, schemas: schemaDict }));
     dispatch(setError(undefined));
     logger.info({ state: "post:setNotes" });
     return resp;
@@ -161,7 +170,10 @@ export const engineSlice = createSlice({
   name: "engine",
   initialState,
   reducers: {
-    setFromInit: (state, action: PayloadAction<DEngineInitPayload>) => {
+    setFromInit: (
+      state,
+      action: PayloadAction<DEngineInitPayload & { schemas: SchemaModuleDict }>
+    ) => {
       const { notes, wsRoot, schemas, vaults, config } = action.payload;
       state.notes = notes;
       state.wsRoot = wsRoot;
@@ -170,7 +182,7 @@ export const engineSlice = createSlice({
       state.config = config;
       state.noteFName = NoteFnameDictUtils.createNotePropsByFnameDict(notes);
     },
-    setConfig: (state, action: PayloadAction<ConfigGetPayload>) => {
+    setConfig: (state, action: PayloadAction<IntermediateDendronConfig>) => {
       state.config = action.payload;
     },
     setNotes: (state, action: PayloadAction<NotePropsByIdDict>) => {
@@ -214,7 +226,6 @@ export const engineSlice = createSlice({
           note,
           noteDicts,
           createStubs: true,
-          wsRoot: state.wsRoot!,
         });
         changed.forEach((noteChangeEntry) =>
           NoteDictsUtils.add(noteChangeEntry.note, noteDicts)

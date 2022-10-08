@@ -6,20 +6,21 @@ import {
   DVault,
   extractNoteChangeEntryCounts,
   NoteUtils,
+  RefactoringCommandUsedPayload,
+  StatisticsUtils,
 } from "@dendronhq/common-all";
 import { vault2Path } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import _md from "markdown-it";
-import { HistoryEvent, LinkUtils } from "@dendronhq/engine-server";
+import { HistoryEvent } from "@dendronhq/engine-server";
 import path from "path";
-import { ProgressLocation, Uri, ViewColumn, window } from "vscode";
+import { Disposable, ProgressLocation, Uri, ViewColumn, window } from "vscode";
 import { LookupControllerV3CreateOpts } from "../components/lookup/LookupControllerV3Interface";
 import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
-import { DENDRON_COMMANDS } from "../constants";
+import { DendronContext, DENDRON_COMMANDS } from "../constants";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { WSUtils } from "../WSUtils";
-import { getExtension, getDWorkspace } from "../workspace";
 import { BasicCommand } from "./base";
 import { RenameNoteOutputV2a, RenameNoteV2aCommand } from "./RenameNoteV2a";
 import {
@@ -28,6 +29,10 @@ import {
 } from "../components/lookup/buttons";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { NoteLookupProviderSuccessResp } from "../components/lookup/LookupProviderV3Interface";
+import { ProxyMetricUtils } from "../utils/ProxyMetricUtils";
+import { LinkUtils } from "@dendronhq/unified";
+import { AutoCompleter } from "../utils/autoCompleter";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
 
 const md = _md();
 
@@ -38,7 +43,9 @@ type CommandOpts = {
   noConfirm?: boolean;
 };
 
-type CommandOutput = RenameNoteOutputV2a;
+export type CommandOutput = RenameNoteOutputV2a & {
+  operations: RenameOperation[];
+};
 
 type RenameOperation = {
   vault: DVault;
@@ -51,6 +58,13 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
   CommandOutput
 > {
   key = DENDRON_COMMANDS.REFACTOR_HIERARCHY.key;
+  _proxyMetricPayload:
+    | (RefactoringCommandUsedPayload & {
+        extra: {
+          [key: string]: any;
+        };
+      })
+    | undefined;
 
   entireWorkspaceQuickPickItem = {
     label: "Entire Workspace",
@@ -82,16 +96,17 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
       ],
     };
     const extension = ExtensionProvider.getExtension();
-    const controller = extension.lookupControllerFactory.create(lcOpts);
+    const lc = extension.lookupControllerFactory.create(lcOpts);
 
     const provider = extension.noteLookupProviderFactory.create(this.key, {
       allowNewNote: false,
       noHidePickerOnAccept: false,
     });
     return new Promise((resolve) => {
+      let disposable: Disposable;
       NoteLookupProviderUtils.subscribe({
         id: this.key,
-        controller,
+        controller: lc,
         logger: this.L,
         onDone: (event: HistoryEvent) => {
           const data = event.data as NoteLookupProviderSuccessResp;
@@ -99,16 +114,34 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
             resolve(undefined);
           }
           resolve(data);
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
         onHide: () => {
           resolve(undefined);
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
-      controller.show({
+      lc.show({
         title: "Decide the scope of refactor",
         placeholder: "Query for scope.",
         provider,
         selectAll: true,
+      });
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
       });
     });
   }
@@ -116,7 +149,7 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
   async promptMatchText() {
     const editor = VSCodeUtils.getActiveTextEditor();
     const value = editor?.document
-      ? WSUtils.getNoteFromDocument(editor.document)?.fname
+      ? (await WSUtils.getNoteFromDocument(editor.document))?.fname
       : "";
     const match = await VSCodeUtils.showInputBox({
       title: "Enter match text",
@@ -196,7 +229,7 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
     };
   }
 
-  async showPreview(operations: RenameOperation[]) {
+  showPreview(operations: RenameOperation[]) {
     let content = [
       "# Refactor Preview",
       "",
@@ -222,7 +255,7 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
     const panel = window.createWebviewPanel(
       "refactorPreview", // Identifies the type of the webview. Used internally
       "Refactor Preview", // Title of the panel displayed to the user
-      ViewColumn.One, // Editor column to show the new webview panel in.
+      { viewColumn: ViewColumn.One, preserveFocus: true }, // Editor column to show the new webview panel in.
       {} // Webview options. More on these later.
     );
     panel.webview.html = md.render(content.join("\n"));
@@ -252,18 +285,17 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
     panel.webview.html = md.render(content);
   }
 
-  getCapturedNotes(opts: {
+  async getCapturedNotes(opts: {
     scope: NoteLookupProviderSuccessResp | undefined;
     matchRE: RegExp;
     engine: DEngineClient;
   }) {
     const { scope, matchRE, engine } = opts;
-    const { notes } = engine;
 
     const scopedItems =
       _.isUndefined(scope) ||
       scope.selectedItems[0] === this.entireWorkspaceQuickPickItem
-        ? _.toArray(notes)
+        ? await engine.findNotes({ excludeStub: false })
         : scope.selectedItems.map(
             (item) =>
               _.omit(item, ["label", "detail", "alwaysShow"]) as DNodeProps
@@ -366,24 +398,58 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
     if (noConfirm) return true;
     const options = ["Proceed", "Cancel"];
     const resp = await VSCodeUtils.showQuickPick(options, {
+      title: "Proceed with Refactor?",
       placeHolder: "Proceed",
       ignoreFocusOut: true,
     });
     return resp === "Proceed";
   }
 
+  prepareProxyMetricPayload(capturedNotes: DNodeProps[]) {
+    const ctx = `${this.key}:prepareProxyMetricPayload`;
+    const engine = ExtensionProvider.getEngine();
+
+    const basicStats = StatisticsUtils.getBasicStatsFromNotes(capturedNotes);
+    if (basicStats === undefined) {
+      this.L.error({ ctx, message: "failed to get basic stats from notes." });
+      return;
+    }
+
+    const { numChildren, numLinks, numChars, noteDepth, ...rest } = basicStats;
+
+    const traitsAcc = capturedNotes.flatMap((note) =>
+      note.traits && note.traits.length > 0 ? note.traits : []
+    );
+    const traitsSet = new Set(traitsAcc);
+    this._proxyMetricPayload = {
+      command: this.key,
+      numVaults: engine.vaults.length,
+      traits: [...traitsSet],
+      numChildren,
+      numLinks,
+      numChars,
+      noteDepth,
+      extra: {
+        numProcessed: capturedNotes.length,
+        ...rest,
+      },
+    };
+  }
+
   async execute(opts: CommandOpts): Promise<any> {
     const ctx = "RefactorHierarchy:execute";
     const { scope, match, replace, noConfirm } = opts;
     this.L.info({ ctx, opts, msg: "enter" });
-    const ext = getExtension();
-    const { engine } = getDWorkspace();
+    const ext = ExtensionProvider.getExtension();
+    const { engine } = ExtensionProvider.getDWorkspace();
     const matchRE = new RegExp(match);
-    const capturedNotes = this.getCapturedNotes({
+    const capturedNotes = await this.getCapturedNotes({
       scope,
       matchRE,
       engine,
     });
+
+    this.prepareProxyMetricPayload(capturedNotes);
 
     const operations = this.getRenameOperations({
       capturedNotes,
@@ -396,7 +462,7 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
       return;
     }
 
-    await this.showPreview(operations);
+    this.showPreview(operations);
 
     const shouldProceed = await this.promptConfirmation(noConfirm);
     if (!shouldProceed) {
@@ -419,7 +485,7 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
         return out;
       }
     );
-    return out;
+    return { ...out, operations };
   }
 
   async showResponse(res: CommandOutput) {
@@ -438,9 +504,44 @@ export class RefactorHierarchyCommandV2 extends BasicCommand<
     }
   }
 
-  addAnalyticsPayload(_opts?: CommandOpts, out?: CommandOutput) {
-    const payload =
-      out !== undefined ? { ...extractNoteChangeEntryCounts(out.changed) } : {};
-    return payload;
+  trackProxyMetrics({
+    noteChangeEntryCounts,
+  }: {
+    noteChangeEntryCounts: {
+      createdCount: number;
+      deletedCount: number;
+      updatedCount: number;
+    };
+  }) {
+    if (this._proxyMetricPayload === undefined) {
+      return;
+    }
+
+    const { extra, ...props } = this._proxyMetricPayload;
+
+    ProxyMetricUtils.trackRefactoringProxyMetric({
+      props,
+      extra: {
+        ...extra,
+        ...noteChangeEntryCounts,
+      },
+    });
+  }
+
+  addAnalyticsPayload(_opts: CommandOpts, out: CommandOutput) {
+    const noteChangeEntryCounts =
+      out !== undefined
+        ? { ...extractNoteChangeEntryCounts(out.changed) }
+        : {
+            createdCount: 0,
+            updatedCount: 0,
+            deletedCount: 0,
+          };
+    try {
+      this.trackProxyMetrics({ noteChangeEntryCounts });
+    } catch (error) {
+      this.L.error({ error });
+    }
+    return noteChangeEntryCounts;
   }
 }

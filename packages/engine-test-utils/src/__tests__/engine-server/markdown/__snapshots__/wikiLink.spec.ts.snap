@@ -7,7 +7,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -20,13 +19,7 @@ VFile {
 exports[`wikiLinks compile "HTML: WITH_ALIAS_APOSTROPHE" 1`] = `
 VFile {
   "contents": "<h1 id=\\"root\\">Root</h1>
-<p><a href=\\"kb.note.20211011124050\\">Coulomb's Constant</a></p>
-<hr>
-<strong>Children</strong>
-<ol>
-<li><a href=\\"bar\\">Bar</a></li>
-<li><a href=\\"foo\\">Foo</a></li>
-</ol>",
+<p><a href=\\"kb.note.20211011124050\\">Coulomb's Constant</a></p>",
   "cwd": "<PROJECT_ROOT>",
   "data": Object {},
   "history": Array [],
@@ -41,7 +34,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -58,7 +50,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -75,7 +66,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -92,7 +82,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -121,13 +110,7 @@ VFile {
 exports[`wikiLinks compile "HTML: WITH_SAME_FILE_BLOCK_ANCHOR" 1`] = `
 VFile {
   "contents": "<h1 id=\\"root\\">Root</h1>
-<p><a href=\\"root#^block\\">Root</a></p>
-<hr>
-<strong>Children</strong>
-<ol>
-<li><a href=\\"bar\\">Bar</a></li>
-<li><a href=\\"foo\\">Foo</a></li>
-</ol>",
+<p><a href=\\"/\\">Root</a></p>",
   "cwd": "<PROJECT_ROOT>",
   "data": Object {},
   "history": Array [],
@@ -153,7 +136,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -170,7 +152,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -187,7 +168,6 @@ VFile {
 <hr>
 <strong>Children</strong>
 <ol>
-<li><a href=\\"bar\\">Bar</a></li>
 <li><a href=\\"foo\\">Foo</a></li>
 </ol>",
   "cwd": "<PROJECT_ROOT>",
@@ -379,174 +359,6 @@ VFile {
 }
 `;
 
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_ALIAS" 1`] = `
-VFile {
-  "contents": "# Root
-
-[bar doesn't foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_ALIAS_APOSTROPHE" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Coulomb's Constant](kb.note.20211011124050.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_ALIAS_HASH" 1`] = `
-VFile {
-  "contents": "# Root
-
-[#bar](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_ANCHOR" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_BLOCK_ANCHOR" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_EXTENSION" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_SAME_FILE_BLOCK_ANCHOR" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Root](root.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_SPACE_AND_ALIAS" 1`] = `
-VFile {
-  "contents": "# Root
-
-[bar](foo%20bar.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_XVAULT_LINK_TO_OTHER_VAULT" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](../vault2/foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_XVAULT_LINK_TO_SAME_VAULT" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: WITH_XVAULT_LINK_TO_SAME_VAULT_AND_ALIAS" 1`] = `
-VFile {
-  "contents": "# Root
-
-[bar](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
-exports[`wikiLinks compile "MD_ENHANCED_PREVIEW: regular" 1`] = `
-VFile {
-  "contents": "# Root
-
-[Foo](foo.md)
-
-",
-  "cwd": "<PROJECT_ROOT>",
-  "data": Object {},
-  "history": Array [],
-  "messages": Array [],
-}
-`;
-
 exports[`wikiLinks compile "MD_REGULAR: WITH_ALIAS" 1`] = `
 VFile {
   "contents": "# Root
@@ -715,6 +527,32 @@ VFile {
 }
 `;
 
+exports[`wikiLinks parse cross vault wikilink with spaces 1`] = `
+Object {
+  "data": Object {
+    "alias": "foo",
+    "anchorHeader": undefined,
+    "sameFile": false,
+    "vaultName": "vault1",
+  },
+  "position": Position {
+    "end": Object {
+      "column": 31,
+      "line": 1,
+      "offset": 30,
+    },
+    "indent": Array [],
+    "start": Object {
+      "column": 1,
+      "line": 1,
+      "offset": 0,
+    },
+  },
+  "type": "wikiLink",
+  "value": "foo",
+}
+`;
+
 exports[`wikiLinks parse fail: bad format 1`] = `
 Object {
   "children": Array [
@@ -739,7 +577,7 @@ Object {
         },
         Object {
           "data": Object {
-            "alias": "foo bar",
+            "alias": undefined,
             "anchorHeader": undefined,
             "sameFile": false,
             "vaultName": undefined,

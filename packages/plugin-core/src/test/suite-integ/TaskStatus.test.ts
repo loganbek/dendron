@@ -54,7 +54,7 @@ suite("GIVEN TaskStatus", function () {
     test("THEN updates the task status", async () => {
       const { engine } = ExtensionProvider.getDWorkspace();
       const task = (
-        await engine.findNotes({
+        await engine.findNotesMeta({
           fname: "task.test",
           vault: taskNote.vault,
         })
@@ -93,72 +93,79 @@ suite("GIVEN TaskStatus", function () {
     });
   });
 
-  describeMultiWS("WHEN the selected link is ambiguous", {}, () => {
-    let taskNote: NoteProps;
-    let otherTaskNote: NoteProps;
-    let showQuickPick: SinonStubbedFn<typeof VSCodeUtils["showQuickPick"]>;
-    before(async () => {
-      const { engine, vaults, wsRoot } = ExtensionProvider.getDWorkspace();
-      const extension = ExtensionProvider.getExtension();
+  describeMultiWS(
+    "WHEN the selected link is ambiguous",
+    // test is flaky
+    { timeout: 1e4 },
+    () => {
+      let taskNote: NoteProps;
+      let otherTaskNote: NoteProps;
+      let showQuickPick: SinonStubbedFn<typeof VSCodeUtils["showQuickPick"]>;
+      before(async () => {
+        const { engine, vaults, wsRoot } = ExtensionProvider.getDWorkspace();
+        const extension = ExtensionProvider.getExtension();
 
-      taskNote = await NoteTestUtilsV4.createNoteWithEngine({
-        engine,
-        fname: "task.test",
-        vault: vaults[0],
-        wsRoot,
-        body: "",
-        genRandomId: true,
-        custom: {
-          status: "",
-        },
-      });
-      otherTaskNote = await NoteTestUtilsV4.createNoteWithEngine({
-        engine,
-        fname: "task.test",
-        vault: vaults[1],
-        wsRoot,
-        body: "",
-        genRandomId: true,
-        custom: {
-          status: "",
-        },
-      });
-      const currentNote = await NoteTestUtilsV4.createNoteWithEngine({
-        engine,
-        fname: "base",
-        vault: vaults[0],
-        wsRoot,
-        body: "[[task.test]]",
-      });
-      const editor = await ExtensionProvider.getWSUtils().openNote(currentNote);
-      editor.selection = LocationTestUtils.getPresetWikiLinkSelection();
+        taskNote = await NoteTestUtilsV4.createNoteWithEngine({
+          engine,
+          fname: "task.test",
+          vault: vaults[0],
+          wsRoot,
+          body: "",
+          genRandomId: true,
+          custom: {
+            status: "",
+          },
+        });
+        otherTaskNote = await NoteTestUtilsV4.createNoteWithEngine({
+          engine,
+          fname: "task.test",
+          vault: vaults[1],
+          wsRoot,
+          body: "",
+          genRandomId: true,
+          custom: {
+            status: "",
+          },
+        });
+        const currentNote = await NoteTestUtilsV4.createNoteWithEngine({
+          engine,
+          fname: "base",
+          vault: vaults[0],
+          wsRoot,
+          body: "[[task.test]]",
+        });
+        const editor = await ExtensionProvider.getWSUtils().openNote(
+          currentNote
+        );
+        editor.selection = LocationTestUtils.getPresetWikiLinkSelection();
 
-      showQuickPick = sinon.stub(VSCodeUtils, "showQuickPick");
-      showQuickPick
-        .onFirstCall()
-        .resolves({ label: taskNote.title, detail: taskNote.vault.fsPath });
-      showQuickPick.onSecondCall().resolves({
-        label: "y",
+        showQuickPick = sinon.stub(VSCodeUtils, "showQuickPick");
+        showQuickPick
+          .onFirstCall()
+          .resolves({ label: taskNote.title, detail: taskNote.vault.fsPath });
+        showQuickPick.onSecondCall().resolves({
+          label: "y",
+        });
+
+        const cmd = new TaskStatusCommand(extension);
+        await cmd.run();
+      });
+      after(() => {
+        showQuickPick.restore();
       });
 
-      const cmd = new TaskStatusCommand(extension);
-      await cmd.run();
-    });
-    after(() => {
-      showQuickPick.restore();
-    });
-
-    test("THEN prompts for the note and the status", () => {
-      expect(showQuickPick.callCount).toEqual(2);
-    });
-    test("THEN updates the task status for the right task", async () => {
-      const { engine } = ExtensionProvider.getDWorkspace();
-      const task = await engine.getNote(taskNote.id);
-      expect(task?.custom.status === "y");
-      const otherTask = await engine.getNote(otherTaskNote.id);
-      expect(_.isEmpty(otherTask?.custom?.status)).toBeTruthy();
-    });
-  });
+      test("THEN prompts for the note and the status", () => {
+        expect(showQuickPick.callCount).toEqual(2);
+      });
+      test("THEN updates the task status for the right task", async () => {
+        const { engine } = ExtensionProvider.getDWorkspace();
+        const task = (await engine.getNote(taskNote.id)).data;
+        expect(task?.custom.status === "y");
+        const otherTask = (await engine.getNote(otherTaskNote.id)).data;
+        expect(_.isEmpty(otherTask?.custom?.status)).toBeTruthy();
+      });
+    }
+  );
 
   describe("WHEN no link is selected", () => {
     describeMultiWS("AND a task note is open", {}, () => {
@@ -193,7 +200,7 @@ suite("GIVEN TaskStatus", function () {
       });
       test("THEN sets the status for the current note", async () => {
         const { engine } = ExtensionProvider.getDWorkspace();
-        const task = await engine.getNote(taskNote.id);
+        const task = (await engine.getNote(taskNote.id)).data;
         expect(task?.custom.status === "y");
       });
     });
@@ -226,7 +233,7 @@ suite("GIVEN TaskStatus", function () {
       });
       test("THEN doesn't set a status for the current note", async () => {
         const { engine } = ExtensionProvider.getDWorkspace();
-        const note = await engine.getNote(otherNote.id);
+        const note = (await engine.getNote(otherNote.id)).data;
         expect(note?.custom?.status === undefined).toBeTruthy();
       });
     });

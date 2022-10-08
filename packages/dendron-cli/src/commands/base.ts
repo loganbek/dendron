@@ -1,7 +1,6 @@
 import {
   CLIEvents,
   DendronError,
-  isDendronResp,
   RespV3,
   config,
   RuntimeUtils,
@@ -10,15 +9,12 @@ import {
 } from "@dendronhq/common-all";
 import {
   createLogger,
+  DConfig,
   getDurationMilliseconds,
   SegmentClient,
   TelemetryStatus,
 } from "@dendronhq/common-server";
-import {
-  DConfig,
-  MIGRATION_ENTRIES,
-  WorkspaceUtils,
-} from "@dendronhq/engine-server";
+import { MIGRATION_ENTRIES, WorkspaceUtils } from "@dendronhq/engine-server";
 import _ from "lodash";
 import yargs from "yargs";
 import { CLIAnalyticsUtils } from "../utils/analytics";
@@ -110,6 +106,8 @@ export abstract class CLICommand<
     this.L.info({ msg: `Telemetry is disabled? ${segment.hasOptedOut}` });
   }
 
+  addAnalyticsPayload?(opts?: TOpts, out?: TOut): any;
+
   async validateConfig(opts: { wsRoot: string }) {
     const { wsRoot } = opts;
 
@@ -182,7 +180,15 @@ export abstract class CLICommand<
   }
 
   addArgsToPayload(data: any) {
-    _.set(this._analyticsPayload, "args", data);
+    this.addToPayload({
+      key: "args",
+      value: data,
+    });
+  }
+
+  addToPayload(opts: { key: string; value: any }) {
+    const { key, value } = opts;
+    _.set(this._analyticsPayload, key, value);
   }
 
   /**
@@ -232,7 +238,7 @@ export abstract class CLICommand<
     this.L.info({ args, state: "execute:pre" });
     const out = await this.execute(opts.data);
     this.L.info({ args, state: "execute:post" });
-    if (isDendronResp(out) && out.error) {
+    if (out.error instanceof DendronError && out.error) {
       this.L.error(out.error);
     }
 

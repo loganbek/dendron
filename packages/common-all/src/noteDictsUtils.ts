@@ -2,10 +2,11 @@ import _ from "lodash";
 import {
   NotePropsByIdDict,
   NotePropsByFnameDict,
-  DVault,
   NoteProps,
   NoteDicts,
+  NotePropsMeta,
 } from "./types";
+import { DVault } from "./types/DVault";
 import { cleanName, isNotUndefined } from "./utils";
 import { VaultUtils } from "./vault";
 
@@ -14,6 +15,17 @@ import { VaultUtils } from "./vault";
  * to work with primitive objects with redux
  */
 export class NoteDictsUtils {
+  /**
+   * Construct a full NoteDicts from a set of Note Props
+   * @param notes
+   */
+  static createNoteDicts(notes: NoteProps[]): NoteDicts {
+    const notesById = this.createNotePropsByIdDict(notes);
+    const notesByFname =
+      NoteFnameDictUtils.createNotePropsByFnameDict(notesById);
+
+    return { notesById, notesByFname };
+  }
   /**
    * Construct NotePropsByIdDict from list of NoteProps
    *
@@ -37,7 +49,7 @@ export class NoteDictsUtils {
    * @param fname
    * @param noteDicts
    * @param vault If provided, use to filter results
-   * @returns Copy of NoteProps array
+   * @returns Array of NoteProps matching opts
    */
   static findByFname(
     fname: string,
@@ -127,7 +139,7 @@ export class NoteFnameDictUtils {
    * @param note to add
    * @param notesByFname dictionary to modify
    */
-  static add(note: NoteProps, notesByFname: NotePropsByFnameDict) {
+  static add(note: NotePropsMeta, notesByFname: NotePropsByFnameDict) {
     const fname = cleanName(note.fname);
     let ids = notesByFname[fname];
     if (_.isUndefined(ids)) ids = [];
@@ -144,7 +156,10 @@ export class NoteFnameDictUtils {
    * @param notesByFname dictionary to modify
    * @returns whether note was deleted
    */
-  static delete(note: NoteProps, notesByFname: NotePropsByFnameDict): boolean {
+  static delete(
+    note: NotePropsMeta,
+    notesByFname: NotePropsByFnameDict
+  ): boolean {
     const fname = cleanName(note.fname);
     const ids = notesByFname[fname];
     if (_.isUndefined(ids)) return false;
@@ -155,5 +170,27 @@ export class NoteFnameDictUtils {
       notesByFname[fname] = ids;
     }
     return true;
+  }
+
+  /**
+   * Merge two NotePropsByFnameDict into a single NotePropsByFnameDict
+   * If key exists in both, merge values into a single array
+   *
+   * @return new merged NotePropsByFnameDict without modifying existing NotePropsByFnameDicts
+   */
+  static merge(
+    fnameDictOne: NotePropsByFnameDict,
+    fnameDictTwo: NotePropsByFnameDict
+  ) {
+    const notesByFname = _.cloneDeep(fnameDictOne);
+    _.entries(fnameDictTwo).forEach(([key, value]) => {
+      // If same key exists, concat values
+      if (notesByFname[key]) {
+        notesByFname[key] = notesByFname[key].concat(value);
+      } else {
+        notesByFname[key] = value;
+      }
+    });
+    return notesByFname;
   }
 }

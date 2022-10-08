@@ -3,12 +3,14 @@ import {
   Awaited,
   DNoteAnchorBasic,
   getSlugger,
+  InvalidFilenameReason,
   NoteProps,
+  NotePropsMeta,
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
 import {
-  ExtensionUtils,
+  FileExtensionUtils,
   findNonNoteFile,
   TemplateUtils,
 } from "@dendronhq/common-server";
@@ -20,7 +22,7 @@ import { PickerUtilsV2 } from "../components/lookup/utils";
 import { DENDRON_COMMANDS } from "../constants";
 import { IDendronExtension } from "../dendronExtensionInterface";
 import { getAnalyticsPayload } from "../utils/analytics";
-import { getLinkFromSelectionWithWorkspace } from "../utils/editor";
+import { EditorUtils } from "../utils/EditorUtils";
 import { PluginFileUtils } from "../utils/files";
 import { maybeSendMeetingNoteTelemetry } from "../utils/MeetingTelemHelper";
 import { VSCodeUtils } from "../vsCodeUtils";
@@ -36,7 +38,7 @@ import {
 
 export const findAnchorPos = (opts: {
   anchor: DNoteAnchorBasic;
-  note: NoteProps;
+  note: NotePropsMeta;
 }): Position => {
   const { anchor: findAnchor, note } = opts;
   let key: string;
@@ -60,7 +62,7 @@ export const findAnchorPos = (opts: {
 };
 
 type FoundLinkSelection = NonNullable<
-  Awaited<ReturnType<typeof getLinkFromSelectionWithWorkspace>>
+  Awaited<ReturnType<typeof EditorUtils.getLinkFromSelectionWithWorkspace>>
 >;
 
 /**
@@ -80,16 +82,16 @@ export class GotoNoteCommand extends BasicCommand<
     this.wsUtils = extension.wsUtils;
   }
 
-  private getQs(
+  private async getQs(
     opts: GoToNoteCommandOpts,
     link: FoundLinkSelection
-  ): GoToNoteCommandOpts {
+  ): Promise<GoToNoteCommandOpts> {
     if (link.value) {
       // Reference to another file
       opts.qs = link.value;
     } else {
       // Same file block reference, implicitly current file
-      const note = this.wsUtils.getActiveNote();
+      const note = await this.wsUtils.getActiveNote();
       if (note) {
         // Same file link within note
         opts.qs = note.fname;
@@ -113,10 +115,7 @@ export class GotoNoteCommand extends BasicCommand<
 
   private async maybeSetOptsFromExistingNote(opts: GoToNoteCommandOpts) {
     const engine = this.extension.getEngine();
-    const notes = NoteUtils.getNotesByFnameFromEngine({
-      fname: opts.qs!,
-      engine,
-    });
+    const notes = await engine.findNotesMeta({ fname: opts.qs });
     if (notes.length === 1) {
       // There's just one note, so that's the one we'll go with.
       opts.vault = notes[0].vault;
@@ -181,14 +180,14 @@ export class GotoNoteCommand extends BasicCommand<
       return opts;
     }
 
-    const link = await getLinkFromSelectionWithWorkspace();
+    const link = await EditorUtils.getLinkFromSelectionWithWorkspace();
     if (!link) {
       window.showErrorMessage("selection is not a valid link");
       return null;
     }
 
     // Get missing opts from the selected link, if possible
-    if (!opts.qs) opts = this.getQs(opts, link);
+    if (!opts.qs) opts = await this.getQs(opts, link);
     if (!opts.vault && link.vaultName)
       opts.vault = VaultUtils.getVaultByNameOrThrow({
         vaults: this.extension.getDWorkspace().vaults,
@@ -243,7 +242,7 @@ export class GotoNoteCommand extends BasicCommand<
     // Non-note files use `qs` for full path, and set vault to null
     if (opts.kind === TargetKind.NON_NOTE && qs) {
       let type: GotoFileType;
-      if (ExtensionUtils.isTextFileExtension(path.extname(qs))) {
+      if (FileExtensionUtils.isTextFileExtension(path.extname(qs))) {
         // Text file, open inside of VSCode
         type = GotoFileType.TEXT;
         const editor = await VSCodeUtils.openFileInEditor(
@@ -285,38 +284,48 @@ export class GotoNoteCommand extends BasicCommand<
 
         // If note doesn't exist, create note with schema
         if (notes.length === 0) {
-          const newNote = NoteUtils.createWithSchema({
-            noteOpts: {
-              fname: qs,
-              vault,
-            },
-            engine: client,
-          });
-          await TemplateUtils.findAndApplyTemplate({
-            note: newNote,
-            engine: client,
-            pickNote: async (choices: NoteProps[]) => {
-              return WSUtilsV2.instance().promptForNoteAsync({
-                notes: choices,
-                quickpickTitle:
-                  "Select which template to apply or press [ESC] to not apply a template",
-                nonStubOnly: true,
-              });
-            },
-          });
-          note = _.merge(newNote, overrides || {});
-          await client.writeNote(note);
+          const fname = qs;
+          // validate fname before creating new note
+          const validationResp = NoteUtils.validateFname(fname);
+          if (validationResp.isValid) {
+            const newNote = await NoteUtils.createWithSchema({
+              noteOpts: {
+                fname,
+                vault,
+              },
+              engine: client,
+            });
+            await TemplateUtils.findAndApplyTemplate({
+              note: newNote,
+              engine: client,
+              pickNote: async (choices: NoteProps[]) => {
+                return WSUtilsV2.instance().promptForNoteAsync({
+                  notes: choices,
+                  quickpickTitle:
+                    "Select which template to apply or press [ESC] to not apply a template",
+                  nonStubOnly: true,
+                });
+              },
+            });
+            note = _.merge(newNote, overrides || {});
+            await client.writeNote(note);
 
-          // check if we should send meeting note telemetry.
-          const type = qs.startsWith("user.") ? "userTag" : "general";
-          maybeSendMeetingNoteTelemetry(type);
+            // check if we should send meeting note telemetry.
+            const type = qs.startsWith("user.") ? "userTag" : "general";
+            maybeSendMeetingNoteTelemetry(type);
+          } else {
+            // should not create note if fname is invalid.
+            // let the user know and exit early.
+            this.displayInvalidFilenameError({ fname, validationResp });
+            return;
+          }
         } else {
           note = notes[0];
           // If note exists and its a stub note, delete stub and create new note
           if (note.stub) {
             delete note.stub;
             note = _.merge(note, overrides || {});
-            await client.writeNote(note, { updateExisting: true });
+            await client.writeNote(note);
           }
         }
 
@@ -351,5 +360,17 @@ export class GotoNoteCommand extends BasicCommand<
     };
     const payload = { ...getAnalyticsPayload(source), fileType: type };
     return payload;
+  }
+
+  private displayInvalidFilenameError(opts: {
+    fname: string;
+    validationResp: {
+      isValid: boolean;
+      reason: InvalidFilenameReason;
+    };
+  }) {
+    const { fname, validationResp } = opts;
+    const message = `Cannot create note ${fname}: ${validationResp.reason}`;
+    window.showErrorMessage(message);
   }
 }

@@ -15,6 +15,7 @@ import { MetadataService, WorkspaceUtils } from "@dendronhq/engine-server";
 import _ from "lodash";
 import * as vscode from "vscode";
 import { GotoNoteCommand } from "../commands/GotoNote";
+import { DendronContext } from "../constants";
 import { IDendronExtension } from "../dendronExtensionInterface";
 import { Logger } from "../logger";
 import { GraphStyleService } from "../styles";
@@ -27,19 +28,33 @@ export class GraphPanel implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _ext: IDendronExtension;
   private _graphDepth: number | undefined;
+  private _showBacklinks: boolean | undefined;
+  private _showOutwardLinks: boolean | undefined;
+  private _showHierarchy: boolean | undefined;
 
   constructor(extension: IDendronExtension) {
     this._ext = extension;
     this._ext.context.subscriptions.push(
       vscode.window.onDidChangeActiveTextEditor(this.onOpenTextDocument, this)
     );
+    // Set default
+    this.showBacklinks =
+      MetadataService.instance().graphPanelShowBacklinks ?? true;
+
+    this.showOutwardLinks =
+      MetadataService.instance().graphPanelShowOutwardLinks ?? true;
+
+    this.showHierarchy =
+      MetadataService.instance().graphPanelShowHierarchy ?? true;
+
+    this.graphDepth = MetadataService.instance().graphDepth || 1;
   }
 
-  private get graphDepth(): number | undefined {
+  public get graphDepth(): number | undefined {
     return this._graphDepth;
   }
 
-  private set graphDepth(depth: number | undefined) {
+  public set graphDepth(depth: number | undefined) {
     if (depth) {
       this._graphDepth = depth;
       this.postMessage({
@@ -49,6 +64,85 @@ export class GraphPanel implements vscode.WebviewViewProvider {
         },
         source: DMessageSource.vscode,
       });
+    }
+  }
+
+  public get showBacklinks(): boolean | undefined {
+    return this._showBacklinks;
+  }
+
+  public set showBacklinks(displayBacklinks: boolean | undefined) {
+    if (
+      !_.isUndefined(displayBacklinks) &&
+      this._showBacklinks !== displayBacklinks
+    ) {
+      this._showBacklinks = displayBacklinks;
+      VSCodeUtils.setContext(
+        DendronContext.GRAPH_PANEL_SHOW_BACKLINKS,
+        displayBacklinks
+      );
+      this.postMessage({
+        type: GraphViewMessageEnum.toggleGraphEdges,
+        data: {
+          showBacklinks: this._showBacklinks,
+        },
+        source: DMessageSource.vscode,
+      });
+      // Save the setting update into persistance storage:
+      MetadataService.instance().graphPanelShowBacklinks = displayBacklinks;
+    }
+  }
+
+  public get showOutwardLinks(): boolean | undefined {
+    return this._showOutwardLinks;
+  }
+
+  public set showOutwardLinks(displayOutwardLinks: boolean | undefined) {
+    if (
+      !_.isUndefined(displayOutwardLinks) &&
+      this._showOutwardLinks !== displayOutwardLinks
+    ) {
+      this._showOutwardLinks = displayOutwardLinks;
+      VSCodeUtils.setContext(
+        DendronContext.GRAPH_PANEL_SHOW_OUTWARD_LINKS,
+        displayOutwardLinks
+      );
+      this.postMessage({
+        type: GraphViewMessageEnum.toggleGraphEdges,
+        data: {
+          showOutwardLinks: this._showOutwardLinks,
+        },
+        source: DMessageSource.vscode,
+      });
+      // Save the setting update into persistance storage:
+      MetadataService.instance().graphPanelShowOutwardLinks =
+        displayOutwardLinks;
+    }
+  }
+
+  public get showHierarchy(): boolean | undefined {
+    return this._showHierarchy;
+  }
+
+  public set showHierarchy(displayHierarchy: boolean | undefined) {
+    if (
+      !_.isUndefined(displayHierarchy) &&
+      this._showHierarchy !== displayHierarchy
+    ) {
+      this._showHierarchy = displayHierarchy;
+      VSCodeUtils.setContext(
+        DendronContext.GRAPH_PANEL_SHOW_HIERARCHY,
+        displayHierarchy
+      );
+      this.postMessage({
+        type: GraphViewMessageEnum.toggleGraphEdges,
+        data: {
+          showHierarchy: this._showHierarchy,
+        },
+        source: DMessageSource.vscode,
+      });
+      // Save the setting update into persistance storage:
+      MetadataService.instance().graphPanelShowHierarchy = displayHierarchy;
     }
   }
 
@@ -106,12 +200,19 @@ export class GraphPanel implements vscode.WebviewViewProvider {
     ).graph.createStub;
     switch (msg.type) {
       case GraphViewMessageEnum.onSelect: {
-        const note = this._ext.getEngine().notes[msg.data.id];
+        const note = (await this._ext.getEngine().getNote(msg.data.id)).data;
+        if (!note) {
+          Logger.error({
+            ctx,
+            msg: `Note ${msg.data.id} not found in engine`,
+          });
+          break;
+        }
         if (note.stub && !createStub) {
-          this.refresh(note, createStub);
+          await this.refresh(note, createStub);
         } else {
-          if (this._ext.wsUtils.getActiveNote()?.fname === note.fname) {
-            this.refresh(note);
+          if ((await this._ext.wsUtils.getActiveNote())?.fname === note.fname) {
+            await this.refresh(note);
             break;
           }
           await new GotoNoteCommand(this._ext).execute({
@@ -131,7 +232,7 @@ export class GraphPanel implements vscode.WebviewViewProvider {
       }
       case DMessageEnum.MESSAGE_DISPATCHER_READY: {
         // if ready, get current note
-        const note = this._ext.wsUtils.getActiveNote();
+        const note = await this._ext.wsUtils.getActiveNote();
         if (note) {
           Logger.debug({
             ctx,
@@ -140,7 +241,7 @@ export class GraphPanel implements vscode.WebviewViewProvider {
           });
         }
         if (note) {
-          this.refresh(note);
+          await this.refresh(note);
         }
         break;
       }
@@ -149,13 +250,24 @@ export class GraphPanel implements vscode.WebviewViewProvider {
         const styles = GraphStyleService.getParsedStyles();
         const graphTheme = MetadataService.instance().getGraphTheme();
         this.graphDepth = MetadataService.instance().graphDepth;
-        if (this._view && (styles || graphTheme || this.graphDepth)) {
+        if (
+          this._view &&
+          (styles ||
+            graphTheme ||
+            this.graphDepth ||
+            this.showBacklinks ||
+            this.showOutwardLinks ||
+            this.showHierarchy)
+        ) {
           this._view.webview.postMessage({
             type: GraphViewMessageEnum.onGraphLoad,
             data: {
               styles,
               graphTheme,
               graphDepth: this.graphDepth,
+              showBacklinks: this.showBacklinks,
+              showOutwardLinks: this.showOutwardLinks,
+              showHierarchy: this.showHierarchy,
             },
             source: "vscode",
           });
@@ -176,7 +288,7 @@ export class GraphPanel implements vscode.WebviewViewProvider {
     }
   }
 
-  onOpenTextDocument(editor: vscode.TextEditor | undefined) {
+  async onOpenTextDocument(editor: vscode.TextEditor | undefined) {
     const document = editor?.document;
     if (_.isUndefined(document) || _.isUndefined(this._view)) {
       return;
@@ -200,18 +312,18 @@ export class GraphPanel implements vscode.WebviewViewProvider {
       });
       return;
     }
-    const note = this._ext.wsUtils.getNoteFromDocument(document);
+    const note = await this._ext.wsUtils.getNoteFromDocument(document);
     if (note) {
       Logger.info({
         ctx,
         msg: "refresh note",
         note: NoteUtils.toLogObj(note),
       });
-      this.refresh(note);
+      await this.refresh(note);
     }
   }
 
-  public refresh(note?: NoteProps, createStub?: boolean) {
+  public async refresh(note?: NoteProps, createStub?: boolean) {
     if (this._view) {
       if (note) {
         this._view.show?.(true);
@@ -224,7 +336,7 @@ export class GraphPanel implements vscode.WebviewViewProvider {
           activeNote:
             note?.stub && !createStub
               ? note
-              : this._ext.wsUtils.getActiveNote(),
+              : await this._ext.wsUtils.getActiveNote(),
         },
         source: "vscode",
       } as OnDidChangeActiveTextEditorMsg);

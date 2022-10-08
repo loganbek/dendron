@@ -1,13 +1,19 @@
-import { IntermediateDendronConfig, NoteProps } from "@dendronhq/common-all";
+import {
+  IntermediateDendronConfig,
+  NoteDictsUtils,
+  NoteProps,
+} from "@dendronhq/common-all";
 import {
   NoteTestUtilsV4,
   TestPresetEntryV4,
 } from "@dendronhq/common-test-utils";
+import { DConfig } from "@dendronhq/common-server";
 import {
   DendronASTDest,
+  getParsingDependencyDicts,
   MDUtilsV5,
   ProcDataFullOptsV5,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import { runEngineTestV5 } from "../../../engine";
 import { ENGINE_HOOKS } from "../../../presets";
 import { checkNotInVFile, checkVFile, createProcTests } from "./utils";
@@ -15,15 +21,15 @@ import { checkNotInVFile, checkVFile, createProcTests } from "./utils";
 function procDendronForPublish(
   opts: Omit<ProcDataFullOptsV5, "dest"> & {
     noteIndex: NoteProps;
-    configOverride?: IntermediateDendronConfig;
   }
 ) {
-  const { engine, configOverride, fname, vault } = opts;
+  const { config, fname, vault, noteToRender, noteCacheForRenderDict } = opts;
   const proc = MDUtilsV5.procRehypeFull({
-    engine,
-    config: configOverride,
+    noteToRender,
+    config,
     fname,
     vault,
+    noteCacheForRenderDict,
   });
   return proc;
 }
@@ -32,22 +38,41 @@ describe("hierarchies", () => {
   const BASIC_TEXT = "[Ch1](foo.ch1.html)";
   const BASIC = createProcTests({
     name: "BASIC",
-    setupFunc: async ({ engine, vaults, extra }) => {
+    setupFunc: async ({ engine, wsRoot, vaults, extra }) => {
+      const config = DConfig.readConfigSync(wsRoot);
+      config.hierarchyDisplay = true;
+      const noteToRender = (
+        await engine.findNotes({ fname: "foo", vault: vaults[0] })
+      )[0];
+      const noteCacheForRenderDict = await getParsingDependencyDicts(
+        noteToRender,
+        engine,
+        config,
+        vaults
+      );
+      NoteDictsUtils.add(
+        (await engine.findNotes({ fname: "foo.ch1", vault: vaults[0] }))[0],
+        noteCacheForRenderDict
+      );
       if (extra.dest !== DendronASTDest.HTML) {
         const proc = MDUtilsV5.procRemarkFull({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "foo",
           dest: extra.dest,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
       } else {
         const proc = procDendronForPublish({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "foo",
-          noteIndex: engine.notes["foo"],
+          noteIndex: (await engine.getNote("foo")).data!,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
@@ -69,15 +94,15 @@ describe("hierarchies", () => {
   const NO_HIERARCHY = createProcTests({
     name: "NO_HIERARCHY",
     setupFunc: async ({ engine, vaults, extra }) => {
-      const configOverride: IntermediateDendronConfig = {
-        ...engine.config,
+      const config: IntermediateDendronConfig = {
+        ...DConfig.readConfigSync(engine.wsRoot),
         hierarchyDisplay: false,
       };
       if (extra.dest !== DendronASTDest.HTML) {
         const proc = MDUtilsV5.procRemarkFull({
-          engine,
+          noteToRender: (await engine.getNote("foo")).data!,
           fname: "foo",
-          config: configOverride,
+          config,
           dest: extra.dest,
           vault: vaults[0],
         });
@@ -85,10 +110,10 @@ describe("hierarchies", () => {
         return { resp };
       } else {
         const proc = procDendronForPublish({
-          engine,
-          configOverride,
+          noteToRender: (await engine.getNote("foo")).data!,
+          config,
           fname: "foo",
-          noteIndex: engine.notes["foo"],
+          noteIndex: (await engine.getNote("foo")).data!,
           vault: vaults[0],
         });
         const resp = await proc.process(BASIC_TEXT);
@@ -110,22 +135,25 @@ describe("hierarchies", () => {
 
   const NO_HIERARCHY_VIA_FM = createProcTests({
     name: "NO_HIERARCHY_VIA_FM",
-    setupFunc: async ({ engine, vaults, extra }) => {
+    setupFunc: async ({ engine, wsRoot, vaults, extra }) => {
+      const config = DConfig.readConfigSync(wsRoot);
       if (extra.dest !== DendronASTDest.HTML) {
         const proc = MDUtilsV5.procRemarkFull({
-          engine,
+          noteToRender: (await engine.getNote("foo")).data!,
           fname: "foo",
           dest: extra.dest,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
       } else {
         const proc = procDendronForPublish({
-          engine,
+          noteToRender: (await engine.getNote("foo")).data!,
           fname: "foo",
-          noteIndex: engine.notes["foo"],
+          noteIndex: (await engine.getNote("foo")).data!,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
@@ -156,26 +184,38 @@ describe("hierarchies", () => {
   const DIFF_HIERARCHY_TITLE = createProcTests({
     name: "DIFF_HIERARCHY_TITLE",
     setupFunc: async ({ engine, vaults, extra }) => {
-      const configOverride: IntermediateDendronConfig = {
-        ...engine.config,
+      const config: IntermediateDendronConfig = {
+        ...DConfig.readConfigSync(engine.wsRoot),
         hierarchyDisplayTitle: "Better Children",
       };
+      const noteToRender = (
+        await engine.findNotes({ fname: "foo", vault: vaults[0] })
+      )[0];
+      const noteCacheForRenderDict = await getParsingDependencyDicts(
+        noteToRender,
+        engine,
+        config,
+        vaults
+      );
       if (extra.dest !== DendronASTDest.HTML) {
         const proc = MDUtilsV5.procRemarkFull({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "foo",
           dest: extra.dest,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
       } else {
         const proc = procDendronForPublish({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "foo",
-          noteIndex: engine.notes["foo"],
+          noteIndex: (await engine.getNote("foo")).data!,
           vault: vaults[0],
-          configOverride,
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
@@ -192,22 +232,99 @@ describe("hierarchies", () => {
 
   const SKIP_LEVELS = createProcTests({
     name: "SKIP_LEVELS",
-    setupFunc: async ({ engine, vaults, extra }) => {
+    setupFunc: async ({ engine, wsRoot, vaults, extra }) => {
+      const config = DConfig.readConfigSync(wsRoot);
+      const noteToRender = (
+        await engine.findNotes({ fname: "daily", vault: vaults[0] })
+      )[0];
+      const noteCacheForRenderDict = await getParsingDependencyDicts(
+        noteToRender,
+        engine,
+        config,
+        vaults
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020.07",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020.07.01",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020.07.01.one",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020.07.05",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
+      NoteDictsUtils.add(
+        (
+          await engine.findNotes({
+            fname: "daily.journal.2020.07.05.two",
+            vault: vaults[0],
+          })
+        )[0],
+        noteCacheForRenderDict
+      );
       if (extra.dest !== DendronASTDest.HTML) {
         const proc = MDUtilsV5.procRemarkFull({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "daily",
           dest: extra.dest,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };
       } else {
         const proc = procDendronForPublish({
-          engine,
+          noteToRender,
+          noteCacheForRenderDict,
           fname: "daily",
-          noteIndex: engine.notes["daily"],
+          noteIndex: (await engine.getNote("daily")).data!,
           vault: vaults[0],
+          config,
         });
         const resp = await proc.process(BASIC_TEXT);
         return { resp };

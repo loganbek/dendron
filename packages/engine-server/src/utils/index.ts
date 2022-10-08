@@ -5,8 +5,8 @@ import {
   DNoteRefLink,
   getSlugger,
   NoteProps,
-  NotePropsByIdDict,
   NotesCacheEntry,
+  ReducedDEngine,
 } from "@dendronhq/common-all";
 import fs from "fs-extra";
 import _ from "lodash";
@@ -15,10 +15,10 @@ import { WSMeta } from "../types";
 
 export * from "./engineUtils";
 
-function normalize(text: string) {
-  return _.toLower(_.trim(text, " #"));
-}
-
+/**
+ * Details:
+ * - trim white space, remove `#`, handle `*` and slug
+ */
 export function normalizev2(
   text: string,
   slugger: ReturnType<typeof getSlugger>
@@ -31,39 +31,10 @@ export function normalizev2(
 }
 
 /**
- * take a ref link and parse it as regular markdown
+ * stringify a note ref link
+ * @param opts
+ * @returns
  */
-export function refLink2String(
-  link: DNoteRefLink,
-  opts?: { includeParen: boolean; includeRefTag?: boolean }
-): string {
-  const cleanOpts = _.defaults(opts, {
-    includeParen: false,
-    includeRefTag: false,
-  });
-  const { anchorStart, anchorStartOffset, anchorEnd } = link.data;
-  const { fname: name } = link.from;
-  // [[foo]]#head1:#*"
-  const linkParts = [`[[${name}]]`];
-  if (anchorStart) {
-    linkParts.push(`#${normalize(anchorStart)}`);
-  }
-  if (anchorStartOffset) {
-    linkParts.push(`,${anchorStartOffset}`);
-  }
-  if (anchorEnd) {
-    linkParts.push(`:#${normalize(anchorEnd)}`);
-  }
-  if (cleanOpts.includeRefTag) {
-    linkParts.splice(0, 0, "ref: ");
-  }
-  if (cleanOpts.includeParen) {
-    linkParts.splice(0, 0, "((");
-    linkParts.push("))");
-  }
-  return linkParts.join("");
-}
-
 export function refLink2Stringv2(opts: {
   link: DNoteRefLink;
   useVaultPrefix?: boolean;
@@ -253,20 +224,26 @@ export class HierarchyUtils {
    * @param opts.skipLevels: how many levels to skip for child
    * @returns
    */
-  static getChildren = (opts: {
+  static getChildren = async (opts: {
     skipLevels: number;
     note: NoteProps;
-    notes: NotePropsByIdDict;
+    engine: ReducedDEngine;
   }) => {
-    const { skipLevels, note, notes } = opts;
-    let children = note.children
-      .map((id) => notes[id])
-      .filter((ent) => !_.isUndefined(ent));
+    const { skipLevels, note, engine } = opts;
+
+    let children = (await engine.bulkGetNotes(note.children)).data;
+
     let acc = 0;
     while (acc !== skipLevels) {
-      children = children
-        .flatMap((ent) => ent.children.map((id) => notes[id]))
-        .filter((ent) => !_.isUndefined(ent));
+      // eslint-disable-next-line no-await-in-loop
+      const descendants = await Promise.all(
+        children
+          .flatMap(
+            async (ent) => (await engine.bulkGetNotes(ent.children)).data
+          )
+          .filter((ent) => !_.isUndefined(ent))
+      );
+      children = descendants.flat();
       acc += 1;
     }
     return children;

@@ -12,6 +12,7 @@ import {
   WorkspaceSettings,
 } from "@dendronhq/common-all";
 import {
+  DConfig,
   getDurationMilliseconds,
   tmpDir,
   vault2Path,
@@ -27,7 +28,7 @@ import {
 import { LaunchEngineServerCommand } from "@dendronhq/dendron-cli";
 import {
   createEngine as engineServerCreateEngine,
-  DConfig,
+  createEngineV3,
   WorkspaceConfig,
   WorkspaceService,
 } from "@dendronhq/engine-server";
@@ -74,6 +75,17 @@ export type AsyncCreateEngineFunction = (
 export async function createEngineFromEngine(opts: WorkspaceOpts) {
   return {
     engine: engineServerCreateEngine(opts) as DEngineClient,
+    port: undefined,
+    server: undefined,
+  };
+}
+
+/**
+ * Create an {@link DendronEngine}
+ */
+export async function createEngineV3FromEngine(opts: WorkspaceOpts) {
+  return {
+    engine: createEngineV3(opts) as DEngineClient,
     port: undefined,
     server: undefined,
   };

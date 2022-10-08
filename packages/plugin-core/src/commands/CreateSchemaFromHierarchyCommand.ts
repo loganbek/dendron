@@ -1,6 +1,6 @@
 import {
   DVault,
-  NoteProps,
+  NotePropsMeta,
   NoteUtils,
   SchemaCreationUtils,
   SchemaInMaking,
@@ -111,7 +111,7 @@ export class Hierarchy {
 }
 
 export type SchemaCandidate = {
-  note: NoteProps;
+  note: NotePropsMeta;
   label: string;
   detail: string;
 };
@@ -221,7 +221,7 @@ export class UserQueries {
       return { stopReason: StopReason.NOTE_DID_NOT_HAVE_REQUIRED_DEPTH };
     }
 
-    if (PluginSchemaUtils.doesSchemaExist(hierarchy.topId())) {
+    if (await PluginSchemaUtils.doesSchemaExist(hierarchy.topId())) {
       // To avoid unpredictable conflicts of schemas: for now we will not allow
       // creation schemas for hierarchies that already have existing top
       // level schema id. Instead we will pop up error message with navigation
@@ -232,9 +232,10 @@ export class UserQueries {
         msgGoToSchema
       );
       if (action === msgGoToSchema) {
-        const schema = PluginSchemaUtils.getSchema(hierarchy.topId());
-
-        await VSCodeUtils.openFileInEditor(getUriFromSchema(schema));
+        const schema = await PluginSchemaUtils.getSchema(hierarchy.topId());
+        if (schema.data) {
+          await VSCodeUtils.openFileInEditor(getUriFromSchema(schema.data));
+        }
       }
 
       return { stopReason: StopReason.SCHEMA_WITH_TOP_ID_ALREADY_EXISTS };
@@ -461,7 +462,9 @@ export class CreateSchemaFromHierarchyCommand extends BasicCommand<
       return { isHappy: false, stopReason: hierLvlOpts.stopReason };
     }
 
-    const candidates = this.getHierarchyCandidates(hierLvlOpts.hierarchyLevel);
+    const candidates = await this.getHierarchyCandidates(
+      hierLvlOpts.hierarchyLevel
+    );
     const patternsOpts =
       await UserQueries.promptUserToPickPatternsFromCandidates(candidates);
     if (_.isUndefined(patternsOpts.pickedCandidates)) {
@@ -492,12 +495,12 @@ export class CreateSchemaFromHierarchyCommand extends BasicCommand<
     return commandOpts;
   }
 
-  private getHierarchyCandidates(
+  private async getHierarchyCandidates(
     hierarchyLevel: HierarchyLevel
-  ): SchemaCandidate[] {
+  ): Promise<SchemaCandidate[]> {
     const { engine } = ExtensionProvider.getDWorkspace();
-    const notes = engine.notes;
-    const noteCandidates = _.filter(notes, (n) =>
+    const engineNotes = await engine.findNotesMeta({ excludeStub: false });
+    const noteCandidates = _.filter(engineNotes, (n) =>
       hierarchyLevel.isCandidateNote(n.fname)
     );
 
@@ -519,7 +522,7 @@ export class CreateSchemaFromHierarchyCommand extends BasicCommand<
   }
 
   formatSchemaCandidates(
-    noteCandidates: NoteProps[],
+    noteCandidates: NotePropsMeta[],
     hierarchyLevel: HierarchyLevel
   ): SchemaCandidate[] {
     return noteCandidates

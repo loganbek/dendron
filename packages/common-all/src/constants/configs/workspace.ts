@@ -8,7 +8,7 @@ import {
   JournalConfig,
 } from "../../types/configs/workspace/journal";
 import { TaskConfig } from "../../types/configs/workspace/task";
-import { DendronWorkspaceConfig } from "../../types/configs/workspace/workspace";
+import { DendronWorkspaceConfig } from "../../types/configs/workspace/DendronWorkspaceConfig";
 import { DendronGraphConfig } from "../../types/configs/workspace/graph";
 import { ScratchConfig } from "../../types/configs/workspace/scratch";
 import { VAULT_SYNC_MODES } from "./base";
@@ -179,10 +179,6 @@ export const WORKSPACE: DendronConfigEntryCollection<DendronWorkspaceConfig> = {
     label: "Enable cross-vault wikilink",
     desc: "Enable cross-vault wikilinks",
   },
-  enableHandlebarTemplates: {
-    label: "Enable handlebar style templates",
-    desc: "",
-  },
   enableRemoteVaultInit: {
     label: "Enable Remote Vault Init",
     desc: "Enable initializing remote vaults on startup.",
@@ -223,5 +219,9 @@ export const WORKSPACE: DendronConfigEntryCollection<DendronWorkspaceConfig> = {
   enableFullHierarchyNoteTitle: {
     label: "Enable FullHierarchyNoteTitle mode",
     desc: "When enabled, the full hierarchy position of a note is used to generate the note title",
+  },
+  metadataStore: {
+    label: "Storage engine for metadata",
+    desc: "values: sqlite|json",
   },
 };

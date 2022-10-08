@@ -1,10 +1,4 @@
-import {
-  ConfigUtils,
-  DailyJournalTestGroups,
-  DVault,
-  Time,
-  _2022_05_DAILY_JOURNAL_TEMPLATE_TEST,
-} from "@dendronhq/common-all";
+import { ConfigUtils, DVault, Time } from "@dendronhq/common-all";
 import { NoteTestUtilsV4 } from "@dendronhq/common-test-utils";
 import { MetadataService } from "@dendronhq/engine-server";
 import { ENGINE_HOOKS } from "@dendronhq/engine-test-utils";
@@ -41,9 +35,6 @@ suite("Create Daily Journal Suite", function () {
     MetadataService.instance().setInitialInstall(
       Time.DateTime.fromISO("2022-06-30").toSeconds()
     );
-    sinon
-      .stub(_2022_05_DAILY_JOURNAL_TEMPLATE_TEST, "getUserGroup")
-      .returns(DailyJournalTestGroups.withTemplate!);
   });
 
   describeMultiWS(
@@ -80,7 +71,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema.fname === "dendron.daily").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
       });
@@ -122,7 +113,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is NOT created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema).toBeFalsy();
       });
     }
@@ -165,7 +156,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is NOT created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema).toBeFalsy();
       });
     }
@@ -207,7 +198,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema.fname === "dendron.daily").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
 
@@ -256,7 +247,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema.fname === "dendron.daily").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
 
@@ -305,7 +296,7 @@ suite("Create Daily Journal Suite", function () {
         expect(traits.length === 1 && traits[0] === "journalNote").toBeTruthy();
 
         // Verify schema is created
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema.fname === "dendron.daily").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
 
@@ -353,7 +344,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["bar"];
+        const dailySchema = (await engine.getSchema("bar")).data!;
         expect(dailySchema.fname === "dendron.bar").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
       });
@@ -408,7 +399,7 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daisy"];
+        const dailySchema = (await engine.getSchema("daisy")).data!;
         expect(dailySchema.fname === "dendron.daisy").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
       });
@@ -446,14 +437,20 @@ suite("Create Daily Journal Suite", function () {
 
         // Verify schema is created
         const engine = ExtensionProvider.getEngine();
-        const dailySchema = engine.schemas["daily"];
+        const dailySchema = (await engine.getSchema("daily")).data!;
         expect(dailySchema.fname === "dendron.daily").toBeTruthy();
         expect(_.size(dailySchema.schemas) === 5).toBeTruthy();
-        const numNotesBefore = _.size(engine.notes);
-        const numSchemasBefore = _.size(engine.schemas);
+        const numNotesBefore = (
+          await engine.findNotesMeta({ excludeStub: true })
+        ).length;
+        const numSchemasBefore = _.size((await engine.querySchema("*")).data);
         await cmd.run();
-        expect(numNotesBefore).toEqual(_.size(engine.notes));
-        expect(numSchemasBefore).toEqual(_.size(engine.schemas));
+        expect(numNotesBefore).toEqual(
+          (await engine.findNotesMeta({ excludeStub: true })).length
+        );
+        expect(numSchemasBefore).toEqual(
+          _.size((await engine.querySchema("*")).data)
+        );
       });
     }
   );

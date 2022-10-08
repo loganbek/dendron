@@ -1,8 +1,9 @@
-import { DendronASTDest, MDUtilsV4 } from "@dendronhq/engine-server";
-import { PublishPodPlantOpts, PublishPod, PublishPodConfig } from "../basev3";
+import { ConfigUtils, NoteDictsUtils } from "@dendronhq/common-all";
+import { DConfig } from "@dendronhq/common-server";
+import { getParsingDependencyDicts, MDUtilsV5 } from "@dendronhq/unified";
 import { JSONSchemaType } from "ajv";
+import { PublishPod, PublishPodConfig, PublishPodPlantOpts } from "../basev3";
 import { PodUtils } from "../utils";
-import { ConfigUtils } from "@dendronhq/common-all";
 
 const ID = "dendron.html";
 
@@ -13,6 +14,7 @@ export type HTMLPublishPodConfig = PublishPodConfig & {
   convertLinks?: boolean;
   convertTagNotesToLinks?: boolean;
   convertUserNotesToLinks?: boolean;
+  enablePrettyRefs?: boolean;
 };
 
 export class HTMLPublishPod extends PublishPod<HTMLPublishPodConfig> {
@@ -39,6 +41,11 @@ export class HTMLPublishPod extends PublishPod<HTMLPublishPodConfig> {
           default: false,
           nullable: true,
         },
+        enablePrettyRefs: {
+          type: "boolean",
+          default: true,
+          nullable: true,
+        },
       },
     }) as JSONSchemaType<HTMLPublishPodConfig>;
   }
@@ -50,30 +57,48 @@ export class HTMLPublishPod extends PublishPod<HTMLPublishPodConfig> {
       convertLinks = true,
       convertTagNotesToLinks = false,
       convertUserNotesToLinks = false,
+      enablePrettyRefs = true,
     } = config;
-    const { data: econfig } = await engine.getConfig();
-    const overrideConfig = { ...econfig! };
+    const econfig = DConfig.readConfigSync(engine.wsRoot);
+    const overrideConfig = { ...econfig };
 
     const workspaceConfig = ConfigUtils.getWorkspace(overrideConfig);
     workspaceConfig.enableUserTags = convertUserNotesToLinks;
     workspaceConfig.enableHashTags = convertTagNotesToLinks;
-    const proc = MDUtilsV4.procFull({
+    const previewConfig = ConfigUtils.getPreview(overrideConfig);
+    previewConfig.enablePrettyRefs = enablePrettyRefs;
+
+    const noteCacheForRenderDict = await getParsingDependencyDicts(
+      note,
       engine,
-      dest: DendronASTDest.HTML,
+      config,
+      config.vaults
+    );
+
+    // Also include children to render the 'children' hierarchy at the footer of the page:
+    await Promise.all(
+      note.children.map(async (childId) => {
+        // TODO: Can we use a bulk get API instead (if/when it exists) to speed
+        // up fetching time
+        const childNote = await engine.getNote(childId);
+
+        if (childNote.data) {
+          NoteDictsUtils.add(childNote.data, noteCacheForRenderDict);
+        }
+      })
+    );
+
+    const proc = MDUtilsV5.procRehypeFull({
+      noteToRender: note,
+      noteCacheForRenderDict,
       vault: note.vault,
+      vaults: engine.vaults,
+      wsRoot: engine.wsRoot,
       fname,
-      shouldApplyPublishRules: false,
-      publishOpts: {
-        insertTitle: ConfigUtils.getProp(overrideConfig, "useFMTitle"),
-      },
       config: overrideConfig,
-      mermaid: ConfigUtils.getProp(overrideConfig, "mermaid"),
       wikiLinksOpts: { convertLinks },
     });
-    const { contents } = await MDUtilsV4.procRehype({
-      proc,
-      mathjax: true,
-    }).process(note!.body);
+    const { contents } = await proc.processSync(note.body);
     return contents as string;
   }
 }

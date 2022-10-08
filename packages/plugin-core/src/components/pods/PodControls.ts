@@ -2,10 +2,12 @@ import { assertUnreachable, DVault, VaultUtils } from "@dendronhq/common-all";
 import { DLogger } from "@dendronhq/common-server";
 import { HistoryEvent } from "@dendronhq/engine-server";
 import {
+  CopyAsFormat,
   ExportPodConfigurationV2,
   ExternalConnectionManager,
   ExternalService,
   ExternalTarget,
+  getAllCopyAsFormat,
   PodExportScope,
   PodUtils,
   PodV2ConfigManager,
@@ -14,11 +16,13 @@ import {
 import path from "path";
 import * as vscode from "vscode";
 import { QuickPick, QuickPickItem } from "vscode";
+import { DendronContext } from "../../constants";
 import { ExtensionProvider } from "../../ExtensionProvider";
 import { KeybindingUtils } from "../../KeybindingUtils";
+import { AutoCompleter } from "../../utils/autoCompleter";
 import { launchGoogleOAuthFlow } from "../../utils/pods";
+import { AutoCompletableRegistrar } from "../../utils/registers/AutoCompletableRegistrar";
 import { VSCodeUtils } from "../../vsCodeUtils";
-import { getExtension } from "../../workspace";
 import { MultiSelectBtn, Selection2ItemsBtn } from "../lookup/buttons";
 import { LookupControllerV3CreateOpts } from "../lookup/LookupControllerV3Interface";
 import { NoteLookupProviderSuccessResp } from "../lookup/LookupProviderV3Interface";
@@ -29,7 +33,7 @@ import { NoteLookupProviderUtils } from "../lookup/NoteLookupProviderUtils";
  */
 export class PodUIControls {
   /**
-   * Prompts the user with a quick-pick to select a {@link PodConfigurationV2}
+   * Prompts the user with a quick-pick to select a {@link ExportPodConfigurationV2}
    * by its podId. Furthermore, there is an option to create a new export
    * configuration intead.
    * @returns
@@ -291,7 +295,9 @@ export class PodUIControls {
   public static async promptToCreateNewServiceConfig(
     serviceType: ExternalService
   ) {
-    const mngr = new ExternalConnectionManager(getExtension().podsDir);
+    const mngr = new ExternalConnectionManager(
+      ExtensionProvider.getExtension().podsDir
+    );
 
     const id = await this.promptForGenericId();
 
@@ -333,16 +339,17 @@ export class PodUIControls {
     };
 
     const extension = ExtensionProvider.getExtension();
-    const controller = extension.lookupControllerFactory.create(lcOpts);
+    const lc = extension.lookupControllerFactory.create(lcOpts);
     const provider = extension.noteLookupProviderFactory.create(key, {
       allowNewNote: false,
       noHidePickerOnAccept: false,
     });
 
     return new Promise((resolve) => {
+      let disposable: vscode.Disposable;
       NoteLookupProviderUtils.subscribe({
         id: key,
-        controller,
+        controller: lc,
         logger,
         onDone: (event: HistoryEvent) => {
           const data = event.data as NoteLookupProviderSuccessResp;
@@ -350,16 +357,34 @@ export class PodUIControls {
             resolve(undefined);
           }
           resolve(data);
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
         onHide: () => {
           resolve(undefined);
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
-      controller.show({
+      lc.show({
         title: "Select notes to export.",
         placeholder: "Lookup notes.",
         provider,
         selectAll: true,
+      });
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
       });
     });
   }
@@ -396,7 +421,7 @@ export class PodUIControls {
     const items: QuickPickItem[] = [];
 
     const configs = PodV2ConfigManager.getAllPodConfigs(
-      path.join(getExtension().podsDir, "custom")
+      path.join(ExtensionProvider.getExtension().podsDir, "custom")
     );
 
     configs.forEach((config) => {
@@ -407,7 +432,9 @@ export class PodUIControls {
       } catch (e: any) {
         if (
           e.message &&
-          e.message.includes(KeybindingUtils.MULTIPLE_KEYBINDINGS_MSG_FMT)
+          e.message.includes(
+            KeybindingUtils.getMultipleKeybindingsMsgFormat("pod")
+          )
         ) {
           keybinding = "Multiple Keybindings";
         }
@@ -455,7 +482,10 @@ export class PodUIControls {
       },
     ];
     // Cannot have clipboard be the destination on a multi-note export
-    if (exportScope === PodExportScope.Note) {
+    if (
+      exportScope === PodExportScope.Note ||
+      exportScope === PodExportScope.Selection
+    ) {
       const picked = await vscode.window.showQuickPick(items);
 
       if (!picked) {
@@ -502,6 +532,9 @@ export class PodUIControls {
 
       case PodExportScope.Workspace:
         return "Exports all notes in the Dendron workspace";
+
+      case PodExportScope.Selection:
+        return "Export the selected text from currently opened note";
 
       default:
         assertUnreachable(scope);
@@ -550,5 +583,40 @@ export class PodUIControls {
       ignoreFocusOut: true,
     });
     return podIdQuickPick?.label;
+  }
+
+  /**
+   * Prompt user to select the copy as format
+   */
+  public static async promptToSelectCopyAsFormat(): Promise<
+    CopyAsFormat | undefined
+  > {
+    const items = getAllCopyAsFormat().map<QuickPickItem>((value) => {
+      let keybinding;
+
+      try {
+        keybinding =
+          KeybindingUtils.getKeybindingsForCopyAsIfExists(value) || "";
+      } catch (e: any) {
+        if (
+          e.message &&
+          e.message.includes(
+            KeybindingUtils.getMultipleKeybindingsMsgFormat("copy as")
+          )
+        ) {
+          keybinding = "Multiple Keybindings";
+        }
+      }
+      return {
+        label: value,
+        description: keybinding,
+        detail: `Format Dendron note to ${value} and copy it to the clipboard`,
+      };
+    });
+    const formatQuickPick = await VSCodeUtils.showQuickPick(items, {
+      title: "Pick the format to convert",
+      ignoreFocusOut: true,
+    });
+    return formatQuickPick?.label as CopyAsFormat;
   }
 }

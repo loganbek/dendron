@@ -248,6 +248,11 @@ export const DEPRECATED_PATHS = [
   "site.useContainers",
   "site.generateChangelog",
   "dev.enableWebUI",
+  "workspace.enableHandlebarTemplates",
+  "workspace.enableSmartRefs",
+  "preview.enableMermaid",
+  "enableMermaid",
+  "publishing.enableMermaid",
 ];
 
 export class MigrationUtils {

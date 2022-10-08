@@ -8,6 +8,7 @@ import {
   RenameHeaderCommand,
   CommandOutput,
 } from "../../commands/RenameHeader";
+import { ExtensionProvider } from "../../ExtensionProvider";
 import { WSUtils } from "../../WSUtils";
 import { expect, LocationTestUtils } from "../testUtilsv2";
 import {
@@ -86,12 +87,16 @@ suite("RenameNote", function () {
         sandbox
           .stub(vscode.window, "showInputBox")
           .returns(Promise.resolve("Foo Bar"));
-        const out = (await new RenameHeaderCommand().run({})) as CommandOutput;
+        const out = (await new RenameHeaderCommand(
+          ExtensionProvider.getExtension()
+        ).run({})) as CommandOutput;
 
         const updateResps = out!.data?.filter((resp) => {
           return resp.status === "update";
         });
-        expect(updateResps?.length).toEqual(0);
+        // Only target note should be updated
+        expect(updateResps?.length).toEqual(1);
+        expect(updateResps![0].note.fname).toEqual("target");
       });
     }
   );
@@ -123,7 +128,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -179,7 +186,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -238,7 +247,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -292,7 +303,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-link", vault: vaults[0] })
@@ -343,7 +356,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -399,7 +414,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -455,7 +472,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo [[Bar|note.bar]] Baz"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -511,7 +530,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -573,7 +594,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -640,7 +663,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })
@@ -708,7 +733,9 @@ suite("RenameNote", function () {
             .stub(vscode.window, "showInputBox")
             .returns(Promise.resolve("Foo Bar"));
           try {
-            await new RenameHeaderCommand().run({});
+            await new RenameHeaderCommand(ExtensionProvider.getExtension()).run(
+              {}
+            );
 
             const afterRename = (
               await engine.findNotes({ fname: "has-header", vault: vaults[0] })

@@ -14,24 +14,25 @@ import {
   DendronError,
   ConfigUtils,
 } from "@dendronhq/common-all";
+import { DConfig } from "@dendronhq/common-server";
+import { WorkspaceUtils } from "@dendronhq/engine-server";
 import {
   DendronASTTypes,
-  makeImageUrlFullPath,
   Image,
+  makeImageUrlFullPath,
   MDUtilsV5,
   visit,
-  WorkspaceUtils,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import * as vscode from "vscode";
 import { IDendronExtension } from "../../dendronExtensionInterface";
 import { Logger } from "../../logger";
-import { ITextDocumentService } from "../../services/TextDocumentService";
+import { ITextDocumentService } from "../../services/ITextDocumentService";
 import { sentryReportingCallback } from "../../utils/analytics";
 import { WebViewUtils } from "../../views/utils";
 import { VSCodeUtils } from "../../vsCodeUtils";
 import { WSUtilsV2 } from "../../WSUtilsV2";
-import { IPreviewLinkHandler } from "./PreviewLinkHandler";
+import { IPreviewLinkHandler } from "./IPreviewLinkHandler";
 import { PreviewProxy } from "./PreviewProxy";
 
 /**
@@ -49,6 +50,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
     undefined;
   private _onTextChanged: vscode.Disposable | undefined = undefined;
   private _linkHandler: IPreviewLinkHandler;
+  private _lockedEditorNoteId: string | undefined;
 
   /**
    *
@@ -138,6 +140,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
         }
 
         this._panel = undefined;
+        this.unlock();
       });
 
       this._panel.reveal(viewColumn, preserveFocus);
@@ -150,13 +153,41 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
   hide(): void {
     this.dispose();
   }
+  async lock(noteId?: string) {
+    if (noteId) {
+      this._lockedEditorNoteId = noteId;
+      this.sendLockMessage(this._panel, this.isLocked());
+    } else {
+      Logger.error({
+        ctx: "lock preview",
+        msg: "Did not find note to lock.",
+      });
+    }
+  }
+  unlock() {
+    this._lockedEditorNoteId = undefined;
+    this.sendLockMessage(this._panel, this.isLocked());
+  }
   isOpen(): boolean {
     return this._panel !== undefined;
   }
   isVisible(): boolean {
     return this._panel !== undefined && this._panel.visible;
   }
+
+  isLocked(): boolean {
+    return this._lockedEditorNoteId !== undefined;
+  }
+
+  /**
+   * If the Preview is locked and the active note does not match the locked note.
+   */
+  async isLockedAndDirty(): Promise<boolean> {
+    const note = await this._ext.wsUtils.getActiveNote();
+    return this.isLocked() && note?.id !== this._lockedEditorNoteId;
+  }
   dispose() {
+    this.unlock();
     if (this._panel) {
       this._panel.dispose();
       this._panel = undefined;
@@ -187,7 +218,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
               note: NoteUtils.toLogObj(note),
             });
           } else {
-            note = wsUtils.getActiveNote();
+            note = await wsUtils.getActiveNote();
             if (note) {
               Logger.debug({
                 ctx,
@@ -210,7 +241,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
           Logger.debug({ ctx, "msg.type": "onGetActiveEditor" });
           const activeTextEditor = VSCodeUtils.getActiveTextEditor();
           const maybeNote = !_.isUndefined(activeTextEditor)
-            ? this._ext.wsUtils.tryGetNoteFromDocument(
+            ? await this._ext.wsUtils.tryGetNoteFromDocument(
                 activeTextEditor?.document
               )
             : undefined;
@@ -220,6 +251,19 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
           }
           break;
         }
+        case NoteViewMessageEnum.onLock: {
+          const { data } = msg;
+          Logger.debug({ ctx, "msg.type": "onLock" });
+          this.lock(data.id);
+          break;
+        }
+        case NoteViewMessageEnum.onUnlock: {
+          Logger.debug({ ctx, "msg.type": "onUnlock" });
+          this.unlock();
+          break;
+        }
+        case DMessageEnum.ON_UPDATE_PREVIEW_HTML:
+          break;
         default:
           assertUnreachable(msg.type);
       }
@@ -234,7 +278,8 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
             if (
               !editor ||
               editor.document.uri.fsPath !==
-                vscode.window.activeTextEditor?.document.uri.fsPath
+                vscode.window.activeTextEditor?.document.uri.fsPath ||
+              (await this.isLockedAndDirty())
             ) {
               return;
             }
@@ -251,7 +296,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
               return;
             }
 
-            const maybeNote = this._ext.wsUtils.tryGetNoteFromDocument(
+            const maybeNote = await this._ext.wsUtils.tryGetNoteFromDocument(
               editor.document
             );
 
@@ -283,10 +328,13 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
   private rewriteImageUrls = memoize({
     fn: (note: NoteProps, panel: vscode.WebviewPanel) => {
       const parser = MDUtilsV5.procRemarkFull({
+        noteToRender: note,
         dest: DendronASTDest.MD_DENDRON,
-        engine: this._ext.getEngine(),
         fname: note.fname,
         vault: note.vault,
+        config: DConfig.readConfigSync(this._ext.getDWorkspace().wsRoot, true),
+        wsRoot: this._ext.getDWorkspace().wsRoot,
+        vaults: this._ext.getDWorkspace().vaults,
       });
       const tree = parser.parse(note.body);
       // ^preview-rewrites-images
@@ -340,16 +388,46 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
       }
       note = this.rewriteImageUrls(note, panel);
 
-      return panel.webview.postMessage({
-        type: DMessageEnum.ON_DID_CHANGE_ACTIVE_TEXT_EDITOR,
-        data: {
-          note,
-          syncChangedNote,
-        },
-        source: "vscode",
-      } as OnDidChangeActiveTextEditorMsg);
+      try {
+        return panel.webview.postMessage({
+          type: DMessageEnum.ON_DID_CHANGE_ACTIVE_TEXT_EDITOR,
+          data: {
+            note,
+            syncChangedNote,
+          },
+          source: "vscode",
+        } as OnDidChangeActiveTextEditorMsg);
+      } catch (err) {
+        Logger.info({
+          ctx: "sendRefreshMessage",
+          state: "webview is disposed",
+        });
+        return;
+      }
     }
+
     return;
+  }
+
+  private sendLockMessage(
+    panel: vscode.WebviewPanel | undefined,
+    isLocked: boolean
+  ) {
+    try {
+      return panel?.webview.postMessage({
+        type: isLocked
+          ? NoteViewMessageEnum.onLock
+          : NoteViewMessageEnum.onUnlock,
+        data: {},
+        source: "vscode",
+      } as NoteViewMessage);
+    } catch (err) {
+      Logger.info({
+        ctx: "sendLockMessage",
+        state: "webview is disposed",
+      });
+      return;
+    }
   }
 
   /**
@@ -361,7 +439,7 @@ export class PreviewPanel implements PreviewProxy, vscode.Disposable {
     if (textDocument.document.isDirty === false) {
       return;
     }
-    if (this.isVisible()) {
+    if (this.isVisible() && !(await this.isLockedAndDirty())) {
       const note =
         await this._textDocumentService.processTextDocumentChangeEvent(
           textDocument

@@ -1,13 +1,11 @@
 import {
-  ConfigUtils,
   DendronError,
   EngagementEvents,
   NoteProps,
 } from "@dendronhq/common-all";
 import { TemplateUtils } from "@dendronhq/common-server";
-import { HistoryEvent } from "@dendronhq/engine-server";
 import _ from "lodash";
-import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProviderUtils";
+import { QuickPickTemplateSelector } from "../components/lookup/QuickPickTemplateSelector";
 import { DENDRON_COMMANDS } from "../constants";
 import { ExtensionProvider } from "../ExtensionProvider";
 import { Logger } from "../logger";
@@ -15,8 +13,9 @@ import { AnalyticsUtils } from "../utils/analytics";
 import { VSCodeUtils } from "../vsCodeUtils";
 import { WSUtilsV2 } from "../WSUtilsV2";
 import { BasicCommand } from "./base";
+import * as vscode from "vscode";
 
-type CommandInput = any;
+type CommandInput = CommandOpts;
 
 type CommandOpts = {
   templateNote: NoteProps;
@@ -24,7 +23,7 @@ type CommandOpts = {
 };
 
 type CommandOutput = {
-  updatedTargetNote: NoteProps;
+  updatedTargetNote?: NoteProps;
 };
 
 const APPLY_TEMPLATE_LOOKUP_ID = "templateApply;";
@@ -36,55 +35,34 @@ export class ApplyTemplateCommand extends BasicCommand<
   key = DENDRON_COMMANDS.APPLY_TEMPLATE.key;
 
   async sanityCheck() {
-    if (_.isUndefined(VSCodeUtils.getActiveTextEditor())) {
+    const activeDoc = VSCodeUtils.getActiveTextEditor();
+    if (_.isUndefined(activeDoc)) {
       return "No document open";
+    }
+    // because apply tempalte writes to the note out of band (using fs.write), this will cause
+    // conflicts if the document is dirty
+    if (activeDoc.document.isDirty) {
+      return "Please save the current document before applying a template";
     }
     return;
   }
 
-  private createLookup() {
-    const lc = ExtensionProvider.getExtension().lookupControllerFactory.create({
-      nodeType: "note",
-      buttons: [],
-    });
-    return lc;
-  }
-
   async gatherInputs(): Promise<CommandInput | undefined> {
-    const lc = this.createLookup();
-    const extension = ExtensionProvider.getExtension();
-    const provider = extension.noteLookupProviderFactory.create(
-      APPLY_TEMPLATE_LOOKUP_ID,
-      {
-        allowNewNote: false,
-      }
-    );
-    const config = extension.getDWorkspace().config;
-    const targetNote = WSUtilsV2.instance().getActiveNote();
-    if (!targetNote) {
+    const targetNote = await WSUtilsV2.instance().getActiveNote();
+    if (_.isUndefined(targetNote)) {
       throw new DendronError({ message: "No Dendron note open" });
     }
 
-    const tempPrefix = ConfigUtils.getCommands(config).templateHierarchy;
-    const initialValue = tempPrefix ? `${tempPrefix}.` : undefined;
-
-    return new Promise((resolve) => {
-      NoteLookupProviderUtils.subscribe({
-        id: APPLY_TEMPLATE_LOOKUP_ID,
-        controller: lc,
-        logger: this.L,
-        onDone: (event: HistoryEvent) => {
-          const templateNote = event.data.selectedItems[0] as NoteProps;
-          resolve({ templateNote, targetNote });
-        },
-      });
-      lc.show({
-        title: "Template Apply",
-        placeholder: "template",
-        provider,
-        initialValue,
-      });
+    const selector = new QuickPickTemplateSelector();
+    const templateNote = await selector.getTemplate({
+      logger: this.L,
+      providerId: APPLY_TEMPLATE_LOOKUP_ID,
     });
+    if (_.isUndefined(templateNote)) {
+      throw new DendronError({ message: `Template not found` });
+    }
+
+    return { templateNote, targetNote };
   }
 
   async execute(opts: CommandOpts) {
@@ -93,6 +71,10 @@ export class ApplyTemplateCommand extends BasicCommand<
     Logger.info({ ctx });
     const { templateNote, targetNote } = opts;
     const engine = ExtensionProvider.getEngine();
+    if (templateNote === undefined) {
+      vscode.window.showInformationMessage("No template selected");
+      return { updatedTargetNote: undefined };
+    }
     const updatedTargetNote = TemplateUtils.applyTemplate({
       templateNote,
       engine,

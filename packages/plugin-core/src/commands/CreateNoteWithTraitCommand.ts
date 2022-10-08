@@ -7,6 +7,8 @@ import {
   EngagementEvents,
   NoteUtils,
   SetNameModifierResp,
+  parseDendronURI,
+  VaultUtils,
 } from "@dendronhq/common-all";
 import { HistoryEvent } from "@dendronhq/engine-server";
 import path from "path";
@@ -14,7 +16,7 @@ import * as vscode from "vscode";
 import { IDendronExtension } from "../dendronExtensionInterface";
 import { LookupControllerV3CreateOpts } from "../components/lookup/LookupControllerV3";
 import { PickerUtilsV2 } from "../components/lookup/utils";
-import { VSCodeUtils } from "../vsCodeUtils";
+import { MessageSeverity, VSCodeUtils } from "../vsCodeUtils";
 import { BaseCommand } from "./base";
 import { GotoNoteCommand } from "./GotoNote";
 import { ExtensionProvider } from "../ExtensionProvider";
@@ -23,6 +25,11 @@ import { NoteLookupProviderUtils } from "../components/lookup/NoteLookupProvider
 import { TemplateUtils } from "@dendronhq/common-server";
 import { AnalyticsUtils } from "../utils/analytics";
 import { TraitUtils } from "../traits/TraitUtils";
+import _ from "lodash";
+import { Disposable } from "vscode";
+import { DendronContext } from "../constants";
+import { AutoCompleter } from "../utils/autoCompleter";
+import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
 
 export type CommandOpts = {
   fname: string;
@@ -39,14 +46,38 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
   CommandInput
 > {
   key: string;
-  trait: NoteTrait;
+  private _trait: NoteTrait | undefined;
+  private initTrait: () => NoteTrait;
   protected _extension: IDendronExtension;
 
-  constructor(ext: IDendronExtension, commandId: string, trait: NoteTrait) {
+  constructor(
+    ext: IDendronExtension,
+    commandId: string,
+    // TODO: refactor trait to `initTratCb` and remove static initialization of trait
+    trait: NoteTrait | (() => NoteTrait)
+  ) {
     super();
     this.key = commandId;
-    this.trait = trait;
+    this.skipAnalytics = true;
+
+    if (_.isFunction(trait)) {
+      this.initTrait = trait;
+    } else {
+      this.initTrait = () => trait;
+    }
     this._extension = ext;
+  }
+
+  private get trait(): NoteTrait {
+    if (!this._trait) {
+      this._trait = this.initTrait();
+      if (_.isUndefined(this._trait)) {
+        throw new DendronError({
+          message: `unable to init trait for ${this.key}`,
+        });
+      }
+    }
+    return this._trait;
   }
 
   async gatherInputs(): Promise<CommandInput | undefined> {
@@ -125,26 +156,46 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
     let title;
     let body;
     let custom;
+    let vault: DVault | undefined;
 
     // TODO: GoToNoteCommand() needs to have its arg behavior fixed, and then
     // this vault logic can be deferred there.
-    let vault = opts.vaultOverride;
-    if (!opts.vaultOverride) {
-      const selectionMode =
-        VaultSelectionModeConfigUtils.getVaultSelectionMode();
 
-      const currentVault = PickerUtilsV2.getVaultForOpenEditor();
-      const selectedVault = await PickerUtilsV2.getOrPromptVaultForNewNote({
-        vault: currentVault,
-        fname,
-        vaultSelectionMode: selectionMode,
-      });
+    if (this.trait.OnCreate?.setVault) {
+      try {
+        const vaultName = this.trait.OnCreate.setVault();
+        const { vaults } = ExtensionProvider.getDWorkspace();
+        vault = vaults.find((vault) => VaultUtils.getName(vault) === vaultName);
+        if (!vault) {
+          VSCodeUtils.showMessage(
+            MessageSeverity.ERROR,
+            "Vault specified in the note trait does not exist",
+            {}
+          );
+          return;
+        }
+      } catch (Error: any) {
+        this.L.error({ ctx: "traint.onCreate.setVault", msg: Error });
+      }
+    } else {
+      vault = opts.vaultOverride;
+      if (!opts.vaultOverride) {
+        const selectionMode =
+          VaultSelectionModeConfigUtils.getVaultSelectionMode();
 
-      if (!selectedVault) {
-        vscode.window.showInformationMessage("Note creation cancelled");
-        return;
-      } else {
-        vault = selectedVault;
+        const currentVault = PickerUtilsV2.getVaultForOpenEditor();
+        const selectedVault = await PickerUtilsV2.getOrPromptVaultForNewNote({
+          vault: currentVault,
+          fname,
+          vaultSelectionMode: selectionMode,
+        });
+
+        if (!selectedVault) {
+          vscode.window.showInformationMessage("Note creation cancelled");
+          return;
+        } else {
+          vault = selectedVault;
+        }
       }
     }
 
@@ -174,10 +225,27 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
       } catch (Error: any) {
         this.L.error({ ctx: "trait.OnCreate.setTemplate", msg: Error });
       }
+      let maybeVault: DVault | undefined;
+      // for cross vault template
+      const { link: fname, vaultName } = parseDendronURI(templateNoteName);
+      if (!_.isUndefined(vaultName)) {
+        maybeVault = VaultUtils.getVaultByName({
+          vname: vaultName,
+          vaults: ExtensionProvider.getEngine().vaults,
+        });
+        // If vault is not found, skip lookup through rest of notes and return error
+        if (_.isUndefined(maybeVault)) {
+          this.L.error({
+            ctx: "trait.OnCreate.setTemplate",
+            msg: `No vault found for ${vaultName}`,
+          });
+          return;
+        }
+      }
 
       const notes = await ExtensionProvider.getEngine().findNotes({
-        fname: templateNoteName,
-        vault,
+        fname,
+        vault: maybeVault,
       });
 
       const dummy = NoteUtils.createForFake({
@@ -243,6 +311,7 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
           VSCodeUtils.getActiveTextEditor()?.document.uri.fsPath || "",
           ".md"
         );
+      let disposable: Disposable;
 
       NoteLookupProviderUtils.subscribe({
         id: "createNoteWithTrait",
@@ -266,6 +335,9 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
             id: "createNoteWithTrait",
             controller: lc,
           });
+
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
         onError: (event: HistoryEvent) => {
           const error = event.data.error as DendronError;
@@ -275,6 +347,8 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
             id: "createNoteWithTrait",
             controller: lc,
           });
+          disposable?.dispose();
+          VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);
         },
       });
       lc.show({
@@ -282,6 +356,20 @@ export class CreateNoteWithTraitCommand extends BaseCommand<
         provider,
         initialValue: defaultNoteName,
         title: `Create Note with Trait`,
+      });
+
+      VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, true);
+
+      disposable = AutoCompletableRegistrar.OnAutoComplete(() => {
+        if (lc.quickPick) {
+          lc.quickPick.value = AutoCompleter.getAutoCompletedValue(
+            lc.quickPick
+          );
+
+          lc.provider.onUpdatePickerItems({
+            picker: lc.quickPick,
+          });
+        }
       });
     });
   }

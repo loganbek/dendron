@@ -3,6 +3,7 @@ import {
   InsertNoteLinkAliasModeEnum,
   LegacyLookupSelectionType,
   NoteAddBehaviorEnum,
+  SearchMode,
   StrictConfigV5,
 } from "@dendronhq/common-all";
 
@@ -34,7 +35,7 @@ export class WorkspaceTestUtils {
           },
         },
         randomNote: {},
-        copyNoteLink: {},
+        copyNoteLink: { aliasMode: "title" },
         insertNoteLink: {
           aliasMode: InsertNoteLinkAliasModeEnum.none,
           enableMultiSelect: false,
@@ -85,7 +86,6 @@ export class WorkspaceTestUtils {
           zoomSpeed: 1,
           createStub: false,
         },
-        enableHandlebarTemplates: true,
         enableAutoCreateOnDefinition: false,
         enableXVaultWikiLink: false,
         enableRemoteVaultInit: true,
@@ -103,7 +103,6 @@ export class WorkspaceTestUtils {
         enableNoteTitleForLink: true,
         enableFrontmatterTags: true,
         enableHashesForFMTags: false,
-        enableMermaid: true,
         enablePrettyRefs: true,
         enableKatex: true,
         automaticallyShowPreview: false,
@@ -113,13 +112,13 @@ export class WorkspaceTestUtils {
         enableFrontmatterTags: true,
         enableHashesForFMTags: false,
         enableKatex: true,
-        enableMermaid: true,
         enableNoteTitleForLink: true,
         copyAssets: true,
         enablePrettyRefs: true,
         siteHierarchies: ["root"],
         writeStubs: false,
         siteRootDir: "docs",
+        searchMode: SearchMode.SEARCH,
         seo: {
           title: "Dendron",
           description: "Personal Knowledge Space",

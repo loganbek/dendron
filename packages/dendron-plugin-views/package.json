@@ -1,6 +1,6 @@
 {
   "name": "@dendronhq/dendron-plugin-views",
-  "version": "0.100.1",
+  "version": "0.114.0",
   "private": true,
   "workspaces": {
     "nohoist": [
@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@babel/core": "7.12.3",
-    "@dendronhq/common-all": "^0.100.1",
-    "@dendronhq/common-frontend": "^0.100.1",
-    "@dendronhq/common-server": "^0.100.1",
+    "@dendronhq/common-all": "^0.114.0",
+    "@dendronhq/common-frontend": "^0.114.0",
+    "@dendronhq/common-server": "^0.114.0",
     "@pmmmwh/react-refresh-webpack-plugin": "0.4.3",
     "@svgr/webpack": "5.5.0",
     "@testing-library/jest-dom": "^5.11.4",
@@ -32,7 +32,7 @@
     "@types/react-dom": "^17.0.0",
     "@typescript-eslint/eslint-plugin": "^4.5.0",
     "@typescript-eslint/parser": "^4.5.0",
-    "antd": "^4.16.13",
+    "antd": "^4.21.4",
     "babel-eslint": "^10.1.0",
     "babel-jest": "^26.6.0",
     "babel-loader": "8.1.0",
@@ -66,7 +66,7 @@
     "jest-resolve": "26.6.0",
     "jest-watch-typeahead": "0.6.1",
     "lodash": "^4.17.21",
-    "mermaid": "^9.1.1",
+    "mermaid": "^9.1.2",
     "mini-css-extract-plugin": "0.11.3",
     "node-sass": "^7.0.0",
     "optimize-css-assets-webpack-plugin": "5.0.4",

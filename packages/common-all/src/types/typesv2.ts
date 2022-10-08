@@ -1,108 +1,39 @@
 import { URI } from "vscode-uri";
-import { DendronError, DendronCompositeError, IDendronError } from "../error";
+import { IDendronError } from "../error";
 import {
-  DLink,
   DNodeProps,
   DNodeType,
+  DNoteAnchorPositioned,
+  DNoteLoc,
   NoteProps,
+  NotePropsMeta,
   Position,
   SchemaData,
   SchemaProps,
 } from "./foundation";
 import { DHookDict } from "./hooks";
-import { DVault } from "./workspace";
 import { IntermediateDendronConfig } from "./intermediateConfigs";
 import { VSRange } from "./compat";
 import { Decoration, Diagnostic } from ".";
-import { FindNoteOpts } from "./rest";
-import type { Optional } from "../utils";
 import { DendronASTDest, ProcFlavor } from "./unified";
-import { GetAnchorsRequest, GetLinksRequest } from "..";
+import { FindNoteOpts } from "./FindNoteOpts";
+import { DVault } from "./DVault";
 
-export enum ResponseCode {
-  OK = 200,
-  // 412
-  PRECONDITION_FAILED = 412,
-}
+export type OptionalExceptFor<T, TRequired extends keyof T> = Partial<T> &
+  Pick<T, TRequired>;
 
 export type EngineDeleteOpts = {
   /**
-   * Only delete from meta
+   * If true, delete only from metadata store. Otherwise, delete from metadata store and filesystem.
    */
   metaOnly?: boolean;
   /**
    * If node is deleted and parents are stubs, default behavior is to alsod delete parents
    */
   noDeleteParentStub?: boolean;
-  /**
-   * If the deleted note has children, replace the deleted note with a newly created stub note in place.
-   */
-  replaceWithNewStub?: boolean;
-};
-
-export type NoteLink = {
-  type: "note";
-  id: string;
 };
 
 // === New
-
-export type DNoteLoc = {
-  fname: string;
-  alias?: string;
-  id?: string;
-  vaultName?: string;
-  anchorHeader?: string;
-};
-
-export type DNoteAnchor =
-  | DNoteBlockAnchor
-  | DNoteHeaderAnchor
-  | DNoteLineAnchor;
-
-/**
- * Anchor without {@link DNoteHeaderAnchor.depth} info
- * @todo see migration [[DNoteAnchorBasic|dendron://dendron.docs/dev.changelog#dnoteanchorbasic]]
- */
-export type DNoteAnchorBasic =
-  | DNoteBlockAnchor
-  | Omit<DNoteHeaderAnchor, "depth">
-  | DNoteLineAnchor;
-
-export type DNoteBlockAnchor = {
-  type: "block";
-  text?: string; //original text for the anchor
-  value: string;
-};
-
-/**
- * This represents a markdown header
- * ```md
- * # H1
- * ```
- */
-export type DNoteHeaderAnchor = {
-  type: "header";
-  text?: string; //original text for the anchor
-  value: string;
-  depth: number;
-};
-
-/** An anchor referring to a specific line in a file. These don't exist inside of files, they are implied by the link containing the anchor.
- *
- * Lines are indexed starting at 1, which is similar to how you refer to specific lines on Github.
- */
-export type DNoteLineAnchor = {
-  type: "line";
-  /** 1-indexed line number. */
-  line: number;
-  value: string;
-};
-
-export type DNoteAnchorPositioned = (DNoteBlockAnchor | DNoteHeaderAnchor) & {
-  line: number;
-  column: number;
-};
 
 export type DLinkType = "wiki" | "refv2" | "hashtag" | "usertag" | "fmtag";
 
@@ -120,7 +51,10 @@ export type DNoteLink<TData extends DNoteLinkData = DNoteLinkData> = {
   data: TData;
 };
 
-export type DNoteLinkRaw<TData = any> = Omit<DNoteLink<TData>, "from"> & {
+export type DNoteLinkRaw<TData extends DNoteLinkData = any> = Omit<
+  DNoteLink<TData>,
+  "from"
+> & {
   from?: DNoteLoc;
 };
 
@@ -166,8 +100,14 @@ export type NoteQuickInput = NoteProps & {
   alwaysShow?: boolean;
 };
 
-export type DNodePropsDict = {
-  [key: string]: DNodeProps;
+/**
+ * A reduced version of NoteQuickInput that only keeps the props necessary for
+ * lookup quick pick items
+ */
+export type NoteQuickInputV2 = Pick<NoteProps, "fname" | "vault" | "schema"> & {
+  label: string;
+  detail?: string;
+  alwaysShow?: boolean;
 };
 
 /**
@@ -254,59 +194,38 @@ export interface RespV2<T> {
   error: IDendronError | null;
 }
 
-export interface BulkResp<T> {
-  data?: T;
-  error: DendronCompositeError | null;
-}
+export type RespV3ErrorResp = {
+  error: IDendronError;
+  data?: never;
+};
+
+export type RespV3SuccessResp<T> = {
+  error?: never;
+  data: T;
+};
 
 /**
- * This lets us use a discriminate union to see if result has error or data
+ * This lets us use a discriminated union to see if result has error or data
+ *
+ * If you need to make sure it is an error (or a success),
+ * use {@link ErrorUtils.isErrorResp} type guard to help typescript narrow it down.
  */
-export type RespV3<T> =
-  | {
-      error: IDendronError;
-      data?: never;
-    }
-  | {
-      error?: never;
-      data: T;
-    };
+export type RespV3<T> = RespV3ErrorResp | RespV3SuccessResp<T>;
 
-export type BooleanResp =
-  | { data: true; error: null }
-  | { data: false; error: IDendronError };
-
-export type DataWithOptError<T> = {
+export type RespWithOptError<T> = {
   data: T;
   error?: IDendronError;
 };
 
-export function isDendronResp<T = any>(args: any): args is RespV2<T> {
-  return args?.error instanceof DendronError;
-}
-
-export interface QueryOptsV2 {
-  /**
-   * Should add to full nodes
-   */
-  fullNode?: boolean;
-  /**
-   * Just get one result
-   */
-  queryOne?: boolean;
-  /**
-   * If node does not exist, create it?
-   */
-  createIfNew?: boolean;
-}
-
+/**
+ * --- ENGINE OPTS
+ */
 export type EngineUpdateNodesOptsV2 = {
   /**
    * New Node, should add to `fullNode` cache
    */
   newNode: boolean;
 };
-export type EngineDeleteOptsV2 = EngineDeleteOpts;
 export type EngineWriteOptsV2 = {
   /**
    * Write all children?
@@ -319,18 +238,28 @@ export type EngineWriteOptsV2 = {
    */
   noAddParent?: boolean;
   /**
-   * Should update existing note instead of overwriting
-   */
-  updateExisting?: boolean;
-  /**
    * Should any configured hooks be run during the write
    */
   runHooks?: boolean;
-} & Partial<EngineUpdateNodesOptsV2>;
+  /**
+   * If true, overwrite existing note with same fname and vault, even if note has a different id
+   */
+  overrideExisting?: boolean;
+  /**
+   * If true, write only to metadata store. Otherwise, write to metadata store and filesystem.
+   */
+  metaOnly?: boolean;
+};
+
+export type EngineSchemaWriteOpts = {
+  /**
+   * If true, write only to metadata store. Otherwise, write to metadata store and filesystem.
+   */
+  metaOnly?: boolean;
+};
 
 export type DEngineInitPayload = {
   notes: NotePropsByIdDict;
-  schemas: SchemaModuleDict;
   wsRoot: string;
   vaults: DVault[];
   config: IntermediateDendronConfig;
@@ -339,9 +268,12 @@ export type RenameNoteOpts = {
   oldLoc: DNoteLoc;
   newLoc: DNoteLoc;
   /**
-   * added for dendron to recognise vscode `rename` menu option
+   * Flag to determine whether we should touch metadata only
+   * For example, if the code comes from vscode `rename` menu option,
+   * we do not want to touch the filesystem.
+   * If not provided, modify both metadata and filesystem.
    */
-  isEventSourceEngine?: boolean;
+  metaOnly?: boolean;
 };
 
 export type RenderNoteOpts = {
@@ -354,17 +286,9 @@ export type RenderNoteOpts = {
   flavor?: ProcFlavor;
 };
 
-export type RefreshNotesOpts = {
-  notes: NoteChangeEntry[];
-};
-
 export type GetNoteBlocksOpts = {
   id: string;
   filterByAnchorType?: "header" | "block";
-};
-
-export type ConfigWriteOpts = {
-  config: IntermediateDendronConfig;
 };
 
 export type GetDecorationsOpts = {
@@ -378,28 +302,46 @@ export type GetDecorationsOpts = {
   text: string;
 };
 
+export type QueryNotesOpts = {
+  qs: string;
+
+  /**
+   * Original query string (which can contain minor modifications such as mapping '/'->'.')
+   * This string is added for sorting the lookup results when there is exact match with
+   * original query. */
+  originalQS: string;
+  onlyDirectChildren?: boolean;
+  vault?: DVault;
+  /**
+   * @deprecated - we shouldn't be creating any notes in the engine from a query API call
+   */
+  createIfNew?: boolean;
+};
+
+export type BulkWriteNotesOpts = {
+  notes: NoteProps[];
+  // If true, skips updating metadata
+  skipMetadata?: boolean;
+  opts?: EngineWriteOptsV2;
+};
+
 // === Engine and Store Main
 
 export type DCommonProps = {
   /**
-   * Dictionary where key is the note id.
+   * @deprecated
    * For access, see {@link DEngine.getNote}
+   * Dictionary where key is the note id.
    */
   notes: NotePropsByIdDict;
   /**
-   * Dictionary where the key is lowercase note fname, and values are ids of notes with that fname (multiple ids since there might be notes with same fname in multiple vaults).
+   * @deprecated
    * For access, see {@link DEngine.findNotes}
+   * Dictionary where the key is lowercase note fname, and values are ids of notes with that fname (multiple ids since there might be notes with same fname in multiple vaults).
    */
   noteFnames: NotePropsByFnameDict;
-  schemas: SchemaModuleDict;
   wsRoot: string;
-  /**
-   * NOTE: currently same as wsRoot. in the future, the two will be decoupled
-   */
-  configRoot: string;
   vaults: DVault[];
-  links: DLink[];
-  config: IntermediateDendronConfig;
 };
 
 export type NoteChangeUpdateEntry = {
@@ -428,49 +370,67 @@ export type NoteBlock = {
 };
 
 /**
- * Returns list of notes that were changed
+ * --- ENGINE RESPONSE TYPES
  */
-export type WriteNoteResp = Required<RespV2<NoteChangeEntry[]>>;
-export type BulkWriteNoteResp = Required<BulkResp<NoteChangeEntry[]>>;
+// NOTES
+export type GetNoteResp = RespV3<NoteProps>;
+export type BulkGetNoteResp = RespWithOptError<NoteProps[]>;
+export type GetNoteMetaResp = RespV3<NotePropsMeta>;
+export type BulkGetNoteMetaResp = RespWithOptError<NotePropsMeta[]>;
+export type FindNotesResp = NoteProps[];
+export type FindNotesMetaResp = NotePropsMeta[];
+/**
+ * Changed notes come from the following sources:
+ * - notes that were deleted (eg. note being renamed had parent that was a stub)
+ * - notes that were created (eg. note being created had no existing parents)
+ * - notes that have had their links re-written
+ */
+export type WriteNoteResp = RespV3<NoteChangeEntry[]>;
+export type BulkWriteNotesResp = RespWithOptError<NoteChangeEntry[]>;
+export type UpdateNoteResp = RespV2<NoteChangeEntry[]>; // TODO: remove
+export type DeleteNoteResp = RespV3<NoteChangeEntry[]>;
+export type QueryNotesResp = RespV3<NoteProps[]>;
+export type RenameNoteResp = RespV3<NoteChangeEntry[]>;
+export type EngineInfoResp = RespV3<{
+  version: string;
+}>;
+export type RenderNoteResp = RespV3<string>;
+export type DEngineInitResp = RespWithOptError<DEngineInitPayload>;
+
+// This can be deleted as soon as store v2 is deleted.
+export type StoreV2InitResp = RespWithOptError<
+  DEngineInitPayload & { schemas: SchemaModuleDict }
+>;
+
+// SCHEMA
+export type DeleteSchemaResp = DEngineInitResp;
+export type GetSchemaResp = RespV3<SchemaModuleProps>;
+export type WriteSchemaResp = RespV3<void>;
+export type QuerySchemaResp = RespV3<SchemaModuleProps[]>;
+
+export type GetNoteBlocksResp = RespV3<NoteBlock[]>;
+export type GetDecorationsResp = RespWithOptError<{
+  decorations?: Decoration[];
+  diagnostics?: Diagnostic[];
+}>;
 
 // --- Common
-export type ConfigGetPayload = IntermediateDendronConfig;
-
 export type DCommonMethods = {
-  bulkWriteNotes: (
-    opts: BulkWriteNotesOpts
-  ) => Promise<Required<BulkResp<NoteChangeEntry[]>>>;
-  // TODO
-  // configGet(): RespV2<ConfigGetPayload>
-  /**
-   *
-   * @param note
-   * @param opts
-   * @returns The updated note. If `newNode` is set, this will have the updated parent id
-   */
-  updateNote(
-    note: NoteProps,
-    opts?: EngineUpdateNodesOptsV2
-  ): Promise<NoteProps>;
-  updateSchema: (schema: SchemaModuleProps) => Promise<void>;
+  bulkWriteNotes: (opts: BulkWriteNotesOpts) => Promise<BulkWriteNotesResp>;
 
+  /**
+   * Write note to metadata store and/or filesystem. This will update existing note or create new if one doesn't exist.
+   * If another note with same fname + vault but different id exists, then return error (otherwise overrideExisting flag is passed)
+   */
   writeNote: (
     note: NoteProps,
     opts?: EngineWriteOptsV2
   ) => Promise<WriteNoteResp>;
 
-  writeSchema: (schema: SchemaModuleProps) => Promise<void>;
-};
-
-// --- Engine
-
-export type DEngineInitResp = RespV2<DEngineInitPayload>;
-export type EngineDeleteNotePayload = NoteChangeEntry[];
-// TODO: KLUDGE
-export type DEngineDeleteSchemaPayload = DEngineInitPayload;
-export type DEngineDeleteSchemaResp = DEngineInitResp;
-export type EngineInfoResp = {
-  version: string;
+  writeSchema: (
+    schema: SchemaModuleProps,
+    opts?: EngineSchemaWriteOpts
+  ) => Promise<WriteSchemaResp>;
 };
 
 // --- VSCOde
@@ -512,55 +472,6 @@ export type WorkspaceExtensionSetting = {
   unwantedRecommendations: string[];
 };
 
-// --- KLUDGE END
-
-export type EngineDeleteNoteResp = Required<RespV2<EngineDeleteNotePayload>>;
-export type NoteQueryResp = Required<RespV2<NoteProps[]>>;
-export type SchemaQueryResp = Required<RespV2<SchemaModuleProps[]>>;
-export type StoreDeleteNoteResp = EngineDeleteNotePayload;
-/**
- * Changed notes come from the following sources:
- * - notes that were deleted (eg. note being renamed had parent that was a stub)
- * - notes that were created (eg. note being created had no existing parents)
- * - notes that have had their links re-written
- */
-export type RenameNotePayload = NoteChangeEntry[];
-export type RenderNotePayload = string | undefined;
-export type GetNoteBlocksPayload = RespV2<NoteBlock[]>;
-export type GetDecorationsPayload = RespV2<{
-  decorations?: Decoration[];
-  diagnostics?: Diagnostic[];
-}>;
-export type GetNoteLinksPayload = RespV2<DLink[]>;
-export type GetAnchorsResp = { [index: string]: DNoteAnchorPositioned };
-export type GetNoteAnchorsPayload = RespV2<GetAnchorsResp>;
-
-export type QueryNotesOpts = {
-  qs: string;
-
-  /**
-   * Original query string (which can contain minor modifications such as mapping '/'->'.')
-   * This string is added for sorting the lookup results when there is exact match with
-   * original query. */
-  originalQS: string;
-  onlyDirectChildren?: boolean;
-  vault?: DVault;
-  createIfNew?: boolean;
-};
-
-export type DEngineInitSchemaResp = Required<RespV2<SchemaModuleProps[]>>;
-
-export type DEngineSyncOpts = {
-  metaOnly?: boolean;
-};
-
-export type BulkWriteNotesOpts = {
-  notes: NoteProps[];
-  // If true, skips updating metadata
-  skipMetadata?: boolean;
-  opts?: EngineWriteOptsV2;
-};
-
 export type DEngine = DCommonProps &
   DCommonMethods & {
     store: DStore;
@@ -569,27 +480,48 @@ export type DEngine = DCommonProps &
 
     init: () => Promise<DEngineInitResp>;
     /**
-     * Get NoteProps by id. If note doesn't exist, return undefined
+     * Get NoteProps by id. If note doesn't exist, return error
      */
-    getNote: (id: string) => Promise<NoteProps | undefined>;
+    getNote: (id: string) => Promise<GetNoteResp>;
+    /**
+     * Get NoteProps metadata by id. If note doesn't exist, return error
+     */
+    getNoteMeta: (id: string) => Promise<GetNoteMetaResp>;
+    /**
+     * Bulk get NoteProps by list of ids
+     */
+    bulkGetNotes: (ids: string[]) => Promise<BulkGetNoteResp>;
+    /**
+     * Bulk get NoteProps metadata by list of ids
+     */
+    bulkGetNotesMeta: (ids: string[]) => Promise<BulkGetNoteMetaResp>;
     /**
      * Find NoteProps by note properties. If no notes match, return empty list
      */
-    findNotes: (opts: FindNoteOpts) => Promise<NoteProps[]>;
+    findNotes: (opts: FindNoteOpts) => Promise<FindNotesResp>;
+    /**
+     * Find NoteProps metadata by note properties. If no notes metadata match, return empty list
+     */
+    findNotesMeta: (opts: FindNoteOpts) => Promise<FindNotesMetaResp>;
+    /**
+     * Delete note from metadata store and/or filesystem. If note doesn't exist, return error
+     */
     deleteNote: (
       id: string,
-      opts?: EngineDeleteOptsV2
-    ) => Promise<EngineDeleteNoteResp>;
+      opts?: EngineDeleteOpts
+    ) => Promise<DeleteNoteResp>;
     deleteSchema: (
       id: string,
-      opts?: EngineDeleteOptsV2
-    ) => Promise<DEngineDeleteSchemaResp>;
-    info: () => Promise<RespV2<EngineInfoResp>>;
-    sync: (opts?: DEngineSyncOpts) => Promise<DEngineInitResp>;
+      opts?: EngineDeleteOpts
+    ) => Promise<DeleteSchemaResp>;
+    info: () => Promise<EngineInfoResp>;
 
-    getSchema: (qs: string) => Promise<RespV2<SchemaModuleProps>>;
-    querySchema: (qs: string) => Promise<SchemaQueryResp>;
-    queryNotes: (opts: QueryNotesOpts) => Promise<NoteQueryResp>;
+    getSchema: (id: string) => Promise<GetSchemaResp>;
+    querySchema: (qs: string) => Promise<QuerySchemaResp>;
+    /**
+     * Query for NoteProps from fuse engine
+     */
+    queryNotes: (opts: QueryNotesOpts) => Promise<QueryNotesResp>;
     queryNotesSync({
       qs,
       originalQS,
@@ -597,30 +529,17 @@ export type DEngine = DCommonProps &
       qs: string;
       originalQS: string;
       vault?: DVault;
-    }): NoteQueryResp;
-    renameNote: (opts: RenameNoteOpts) => Promise<RespV2<RenameNotePayload>>;
-    renderNote: (opts: RenderNoteOpts) => Promise<RespV2<RenderNotePayload>>;
+    }): QueryNotesResp;
     /**
-     * Update note metadata.
-     * Use cases:
-     * - update notes if they've been changed outside of Dendron
+     * Rename note from old DNoteLoc to new DNoteLoc. New note keeps original id
      */
-    refreshNotes: (opts: RefreshNotesOpts) => Promise<RespV2<void>>;
-    getNoteBlocks: (opts: GetNoteBlocksOpts) => Promise<GetNoteBlocksPayload>;
-
-    // config
-    writeConfig: (opts: ConfigWriteOpts) => Promise<RespV2<void>>;
-    getConfig: () => Promise<RespV2<ConfigGetPayload>>;
+    renameNote: (opts: RenameNoteOpts) => Promise<RenameNoteResp>;
+    renderNote: (opts: RenderNoteOpts) => Promise<RenderNoteResp>;
+    getNoteBlocks: (opts: GetNoteBlocksOpts) => Promise<GetNoteBlocksResp>;
 
     // ui offloading
     /** Make sure to call this with plain VSRange and not vscode.Range objects, which can't make it across to the API */
-    getDecorations: (
-      opts: GetDecorationsOpts
-    ) => Promise<GetDecorationsPayload>;
-    getLinks: (
-      opts: Optional<GetLinksRequest, "ws">
-    ) => Promise<GetNoteLinksPayload>;
-    getAnchors: (opts: GetAnchorsRequest) => Promise<GetNoteAnchorsPayload>;
+    getDecorations: (opts: GetDecorationsOpts) => Promise<GetDecorationsResp>;
   };
 
 /**
@@ -631,62 +550,38 @@ export type DEngineClient = Omit<DEngine, "store">;
 
 export type DStore = DCommonProps &
   DCommonMethods & {
-    init: () => Promise<DEngineInitResp>;
+    init: () => Promise<StoreV2InitResp>;
     /**
-     * Get NoteProps by id. If note doesn't exist, return undefined
+     * Get NoteProps by id. If note doesn't exist, return error
      */
-    getNote: (id: string) => Promise<NoteProps | undefined>;
+    getNote: (id: string) => Promise<GetNoteResp>;
+
+    getSchema: (id: string) => Promise<GetSchemaResp>;
+    /**
+     * @deprecated: Use {@link DEngine.writeNote}
+     * @param note
+     * @param opts
+     * @returns The updated note. If `newNode` is set, this will have the updated parent id
+     */
+    updateNote(
+      note: NoteProps,
+      opts?: EngineUpdateNodesOptsV2
+    ): Promise<UpdateNoteResp>;
+
     /**
      * Find NoteProps by note properties. If no notes match, return empty list
      */
-    findNotes: (opts: FindNoteOpts) => Promise<NoteProps[]>;
+    findNotes: (opts: FindNoteOpts) => Promise<FindNotesResp>;
     deleteNote: (
       id: string,
-      opts?: EngineDeleteOptsV2
-    ) => Promise<StoreDeleteNoteResp>;
+      opts?: EngineDeleteOpts
+    ) => Promise<NoteChangeEntry[]>;
     deleteSchema: (
       id: string,
-      opts?: EngineDeleteOptsV2
-    ) => Promise<DEngineDeleteSchemaResp>;
-    renameNote: (opts: RenameNoteOpts) => Promise<RenameNotePayload>;
+      opts?: EngineDeleteOpts
+    ) => Promise<DeleteSchemaResp>;
+    renameNote: (opts: RenameNoteOpts) => Promise<NoteChangeEntry[]>;
   };
-
-// TODO: not used yet
-export type DEngineV4 = {
-  // Properties
-  notes: NotePropsByIdDict;
-  schemas: SchemaModuleDict;
-  wsRoot: string;
-  vaults: DVault[];
-  initialized: boolean;
-} & DEngineV4Methods;
-
-export type DEngineV4Methods = {
-  init: () => Promise<DEngineInitResp>;
-  deleteNote: (
-    id: string,
-    opts?: EngineDeleteOptsV2
-  ) => Promise<EngineDeleteNoteResp>;
-  deleteSchema: (
-    id: string,
-    opts?: EngineDeleteOptsV2
-  ) => Promise<DEngineDeleteSchemaResp>;
-  sync: (opts?: DEngineSyncOpts) => Promise<DEngineInitResp>;
-
-  getSchema: (qs: string) => Promise<RespV2<SchemaModuleProps>>;
-  querySchema: (qs: string) => Promise<SchemaQueryResp>;
-  queryNotes: (opts: QueryNotesOpts) => Promise<NoteQueryResp>;
-  queryNotesSync({ qs }: { qs: string }): NoteQueryResp;
-  renameNote: (opts: RenameNoteOpts) => Promise<RespV2<RenameNotePayload>>;
-  getNoteBlocks: (opts: GetNoteBlocksOpts) => Promise<GetNoteBlocksPayload>;
-
-  // config
-  writeConfig: (opts: ConfigWriteOpts) => Promise<RespV2<void>>;
-  getConfig: () => Promise<RespV2<ConfigGetPayload>>;
-
-  // ui offloading
-  getDecorations: (opts: GetDecorationsOpts) => Promise<GetDecorationsPayload>;
-};
 
 // === Workspace
 
@@ -700,13 +595,6 @@ export type WorkspaceOpts = {
   vaults: DVault[];
   dendronConfig?: IntermediateDendronConfig;
 };
-
-/**
- * Used to specify exact location of a note
- */
-export type GetNoteOpts = {
-  fname: string;
-} & WorkspaceVault;
 
 // === Pods
 export type DPod<TConfig> = {
@@ -777,19 +665,10 @@ export enum DMessageEnum {
    */
   INIT = "init",
   ON_DID_CHANGE_ACTIVE_TEXT_EDITOR = "onDidChangeActiveTextEditor",
+  ON_UPDATE_PREVIEW_HTML = "onUpdatePreviewHTML",
   MESSAGE_DISPATCHER_READY = "messageDispatcherReady",
 }
 
-/** @deprecated: Tree view v2 is deprecated */
-export enum TreeViewMessageEnum {
-  "onSelect" = "onSelect",
-  "onExpand" = "onExpand",
-  "onGetActiveEditor" = "onGetActiveEditor",
-  /**
-   * View is ready
-   */
-  "onReady" = "onReady",
-}
 export enum GraphViewMessageEnum {
   "onSelect" = "onSelect",
   "onGetActiveEditor" = "onGetActiveEditor",
@@ -800,6 +679,7 @@ export enum GraphViewMessageEnum {
   "configureCustomStyling" = "configureCustomStyling",
   "toggleGraphView" = "toggleGraphView",
   "onGraphDepthChange" = "onGraphDepthChange",
+  "toggleGraphEdges" = "toggleGraphEdges",
 }
 
 export enum CalendarViewMessageType {
@@ -811,6 +691,8 @@ export enum CalendarViewMessageType {
 export enum NoteViewMessageEnum {
   "onClick" = "onClick",
   "onGetActiveEditor" = "onGetActiveEditor",
+  "onLock" = "onLock",
+  "onUnlock" = "onUnlock",
 }
 
 export enum LookupViewMessageEnum {
@@ -828,6 +710,11 @@ export enum SeedBrowserMessageType {
   "onSeedAdd" = "onSeedAdd",
   "onOpenUrl" = "onOpenUrl",
   "onSeedStateChange" = "onSeedStateChange",
+}
+
+export enum ConfigureUIMessageEnum {
+  "onUpdateConfig" = "onUpdateConfig",
+  "openDendronConfigYaml" = "openDendronConfigYaml",
 }
 
 export enum GraphThemeEnum {
@@ -860,17 +747,26 @@ export type OnDidChangeActiveTextEditorData = {
   activeNote?: NoteProps;
 };
 
+export type OnUpdatePreviewHTMLData = {
+  note: NoteProps; // TODO: Change to NotePropsMeta
+  html: string;
+};
+
 export type NoteViewMessageType = DMessageEnum | NoteViewMessageEnum;
 
 export type GraphViewMessageType = DMessageEnum | GraphViewMessageEnum;
 
-/** @deprecated: Tree view v2 is deprecated */
-export type TreeViewMessageType = DMessageEnum | TreeViewMessageEnum;
+export type ConfigureUIMessageType = DMessageEnum | ConfigureUIMessageEnum;
 
 export type VSCodeMessage = DMessage;
 export type OnDidChangeActiveTextEditorMsg = DMessage<
   "onDidChangeActiveTextEditor",
   OnDidChangeActiveTextEditorData
+>;
+
+export type OnUpdatePreviewHTMLMsg = DMessage<
+  DMessageEnum.ON_UPDATE_PREVIEW_HTML,
+  OnUpdatePreviewHTMLData
 >;
 
 export type GraphViewMessage = DMessage<
@@ -884,6 +780,13 @@ export type GraphViewMessage = DMessage<
   }
 >;
 
+export type ConfigureUIMessage = DMessage<
+  ConfigureUIMessageType,
+  {
+    config: IntermediateDendronConfig;
+  }
+>;
+
 export type CalendarViewMessage = DMessage<
   CalendarViewMessageType,
   { id?: string; fname?: string }
@@ -893,9 +796,6 @@ export type NoteViewMessage = DMessage<
   NoteViewMessageType,
   { id?: string; href?: string }
 >;
-
-/** @deprecated: Tree view v2 is deprecated */
-export type TreeViewMessage = DMessage<TreeViewMessageType, { id: string }>;
 
 export type SeedBrowserMessage = DMessage<
   SeedBrowserMessageType | DMessageEnum,

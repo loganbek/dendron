@@ -6,7 +6,7 @@ const SCHEMAS = {};
 const NOTES = {
   BASIC: new TestPresetEntryV4(async ({ vaults, engine }) => {
     const vault = vaults[0];
-    const orig = _.size(engine.notes);
+    const orig = _.size(await engine.findNotesMeta({ vault }));
     const note1 = NoteUtils.create({
       id: "bar1",
       fname: "bar1",
@@ -23,26 +23,27 @@ const NOTES = {
     });
     const rootNote = (await engine.findNotes({ fname: "root", vault }))[0];
     await engine.bulkWriteNotes({ notes: [note1, note2] });
+    const barNote = (await engine.getNoteMeta("bar1")).data!;
     return [
       {
-        actual: _.size(engine.notes),
+        actual: _.size(await engine.findNotesMeta({ vault })),
         expected: orig + 2,
         msg: "should be 2 more notes",
       },
       {
-        expected: engine.notes["bar1"].id,
+        expected: barNote.id,
         actual: note1.id,
       },
       {
-        expected: engine.notes["bar1"].fname,
+        expected: barNote.fname,
         actual: note1.fname,
       },
       {
-        expected: engine.notes["bar1"].vault,
+        expected: barNote.vault,
         actual: note1.vault,
       },
       {
-        expected: engine.notes["bar1"].parent,
+        expected: barNote.parent,
         actual: rootNote.id,
       },
     ];

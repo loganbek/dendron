@@ -1,12 +1,12 @@
 import { AssertUtils, TestPresetEntryV4 } from "@dendronhq/common-test-utils";
+import { DConfig } from "@dendronhq/common-server";
 import {
   DendronASTDest,
   DendronASTTypes,
   UserTag,
   MDUtilsV5,
-  ProcMode,
   UnistNode,
-} from "@dendronhq/engine-server";
+} from "@dendronhq/unified";
 import _ from "lodash";
 import { TestConfigUtils } from "../../..";
 import { runEngineTestV5 } from "../../../engine";
@@ -23,9 +23,7 @@ import {
 const { getDescendantNode } = TestUnifiedUtils;
 
 function proc() {
-  return MDUtilsV5.procRehypeParse({
-    mode: ProcMode.NO_DATA,
-  });
+  return MDUtilsV5.procRemarkParseNoData({}, { dest: DendronASTDest.HTML });
 }
 
 function runAllTests(opts: { name: string; testCases: ProcTests[] }) {
@@ -88,7 +86,7 @@ describe("user tags", () => {
       expect(getUserTag(resp).value).toEqual("@7of9");
     });
 
-    test("doesn't parse trailing punctuation", () => {
+    test("doesn't parse trailing punctuation except period (.)", () => {
       const resp1 = proc().parse(
         "Dolorem vero sed sapiente @Hamilton.Margaret. Et quam id maxime et ratione."
       );
@@ -97,7 +95,7 @@ describe("user tags", () => {
       );
       // @ts-ignore
       expect(getDescendantNode(expect, resp1, 0, 1).value).toEqual(
-        "@Hamilton.Margaret"
+        "@Hamilton.Margaret."
       );
 
       const resp2 = proc().parse(
@@ -141,11 +139,12 @@ describe("user tags", () => {
 
     const SIMPLE = createProcTests({
       name: "simple",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(userTag);
         return { resp };
@@ -175,18 +174,6 @@ describe("user tags", () => {
             },
           ];
         },
-        [DendronASTDest.MD_ENHANCED_PREVIEW]: async ({ extra }) => {
-          const { resp } = extra;
-          return [
-            {
-              actual: await AssertUtils.assertInString({
-                body: resp.toString(),
-                match: [`[${userTag}](user.Hamilton.Margaret.md)`],
-              }),
-              expected: true,
-            },
-          ];
-        },
         [DendronASTDest.HTML]: async ({ extra }) => {
           const { resp } = extra;
           await checkVFile(
@@ -200,11 +187,12 @@ describe("user tags", () => {
 
     const INSIDE_LINK = createProcTests({
       name: "inside a link",
-      setupFunc: async ({ engine, vaults, extra }) => {
-        const proc2 = createProcForTest({
+      setupFunc: async ({ engine, vaults, extra, wsRoot }) => {
+        const proc2 = await createProcForTest({
           engine,
           dest: extra.dest,
           vault: vaults[0],
+          config: DConfig.readConfigSync(wsRoot),
         });
         const resp = await proc2.process(
           "[@dendronhq](https://twitter.com/dendronhq)"
@@ -231,12 +219,14 @@ describe("user tags", () => {
   describe("WHEN disabled in config", () => {
     test("THEN user tags don't get parsed or processed", async () => {
       await runEngineTestV5(
-        async ({ engine, vaults }) => {
+        async ({ engine, wsRoot, vaults }) => {
           const proc = MDUtilsV5.procRehypeFull(
             {
-              engine,
+              noteToRender: (
+                await engine.findNotesMeta({ fname: "root", vault: vaults[0] })
+              )[0]!,
               vault: vaults[0],
-              config: engine.config,
+              config: DConfig.readConfigSync(wsRoot),
               fname: "root",
             },
             {}
