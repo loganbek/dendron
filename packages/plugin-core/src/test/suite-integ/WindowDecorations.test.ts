@@ -29,7 +29,9 @@ function isTextDecorated(
 }
 
 async function getNote(opts: { fname: string }) {
-  const { engine, vaults } = ExtensionProvider.getDWorkspace();
+  const ws = ExtensionProvider.getDWorkspace();
+  const { engine } = ws;
+  const vaults = await ws.vaults;
   const { fname } = opts;
 
   const note = (await engine.findNotesMeta({ fname, vault: vaults[0] }))[0];
@@ -393,10 +395,11 @@ suite("GIVEN a text document with decorations", function () {
           const document = editor.document;
           const { allDecorations } = (await updateDecorations(editor))!;
 
-          const wikilinkDecorations = allDecorations!.get(
-            EDITOR_DECORATION_TYPES.wikiLink
-          );
-          expect(wikilinkDecorations!.length).toEqual(10);
+          const wikilinkDecorations = allDecorations!
+            .get(EDITOR_DECORATION_TYPES.wikiLink)!
+            .concat(allDecorations!.get(EDITOR_DECORATION_TYPES.noteRef)!);
+
+          expect(wikilinkDecorations.length).toEqual(10);
           const shouldBeDecorated = [
             "[[#^anchor-1]]",
             "![[#^anchor-1]]",
@@ -411,13 +414,15 @@ suite("GIVEN a text document with decorations", function () {
           ];
           shouldBeDecorated.forEach((text) => {
             expect(
-              isTextDecorated(text, wikilinkDecorations!, document)
+              isTextDecorated(text, wikilinkDecorations, document)
             ).toBeTruthy();
           });
 
-          const brokenWikilinkDecorations = allDecorations!.get(
-            EDITOR_DECORATION_TYPES.brokenWikilink
-          );
+          const brokenWikilinkDecorations = allDecorations!
+            .get(EDITOR_DECORATION_TYPES.brokenWikilink)!
+            .concat(
+              allDecorations!.get(EDITOR_DECORATION_TYPES.brokenNoteRef)!
+            );
           expect(brokenWikilinkDecorations!.length).toEqual(3);
           expect(
             isTextDecorated(
@@ -464,9 +469,9 @@ suite("GIVEN a text document with decorations", function () {
           const document = editor.document;
           const { allDecorations } = (await updateDecorations(editor))!;
 
-          const wikilinkDecorations = allDecorations!.get(
-            EDITOR_DECORATION_TYPES.wikiLink
-          );
+          const wikilinkDecorations = (
+            allDecorations!.get(EDITOR_DECORATION_TYPES.wikiLink) || []
+          ).concat(allDecorations!.get(EDITOR_DECORATION_TYPES.noteRef) || []);
           expect(wikilinkDecorations!.length).toEqual(1);
           expect(
             isTextDecorated("![[foo.bar.*]]", wikilinkDecorations!, document)
@@ -555,7 +560,8 @@ suite("GIVEN a text document with decorations", function () {
   });
 
   describe("AND GIVEN warnings in document", () => {
-    describeMultiWS(
+    // SKIP. Notes without frontmatter should no longer exist in the engine
+    describeMultiWS.skip(
       "AND WHEN missing frontmatter",
       {
         preSetupHook: async ({ vaults, wsRoot }) => {
@@ -648,7 +654,9 @@ suite("GIVEN a text document with decorations", function () {
 
     describeMultiWS("AND frontmatter is not visible", {}, () => {
       before(async () => {
-        const { wsRoot, vaults, engine } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { engine, wsRoot } = ws;
+        const vaults = await ws.vaults;
         const note = await NoteTestUtilsV4.createNoteWithEngine({
           fname: "foo",
           vault: vaults[0],
@@ -767,4 +775,44 @@ suite("mergeOverlappingRanges", () => {
       });
     });
   });
+});
+
+suite("GIVEN NoteReference", () => {
+  const FNAME = "bar";
+  describeMultiWS(
+    "",
+    {
+      timeout: 10e10,
+      preSetupHook: async ({ wsRoot, vaults }) => {
+        await NoteTestUtilsV4.createNote({
+          fname: "withHeader",
+          vault: vaults[0],
+          wsRoot,
+          body: "## ipsam adipisci",
+        });
+        await NoteTestUtilsV4.createNote({
+          fname: FNAME,
+          body: ["![[withHeader#ipsam-adipisci]]"].join("\n"),
+          vault: vaults[0],
+          wsRoot,
+        });
+      },
+      modConfigCb: (config) => {
+        config.dev = { enableExperimentalInlineNoteRef: true };
+        return config;
+      },
+    },
+    () => {
+      test("THEN COMMENT is created for controller ", async () => {
+        const { editor } = await getNote({ fname: FNAME });
+        await updateDecorations(editor);
+        const inlineNoteRefs =
+          ExtensionProvider.getCommentThreadsState().inlineNoteRefs;
+        const docKey =
+          VSCodeUtils.getActiveTextEditor()!.document.uri.toString();
+        const lastNoteRefThreadMap = inlineNoteRefs.get(docKey);
+        expect(lastNoteRefThreadMap.size).toEqual(1);
+      });
+    }
+  );
 });

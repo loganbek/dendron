@@ -20,17 +20,16 @@ import {
   NoteChangeEntry,
   genHash,
   RespV2,
-  cleanName,
-  DendronCompositeError,
   SchemaUtils,
   string2Note,
   globMatch,
-  IntermediateDendronConfig,
-  RespWithOptError,
+  DendronConfig,
   asyncLoopOneAtATime,
   SchemaModuleDict,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
-import { DConfig, DLogger, vault2Path } from "@dendronhq/common-server";
+import { DLogger, vault2Path } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
@@ -94,7 +93,7 @@ export class NoteParserV2 {
     allPaths: string[],
     vault: DVault,
     schemas: SchemaModuleDict
-  ): Promise<RespWithOptError<NoteDicts>> {
+  ): Promise<{ noteDicts: NoteDicts; errors: IDendronError[] }> {
     const ctx = "parseFiles";
     const fileMetaDict: FileMetaDict = getFileMeta(allPaths);
     const maxLvl = _.max(_.keys(fileMetaDict).map((e) => _.toInteger(e))) || 2;
@@ -108,25 +107,35 @@ export class NoteParserV2 {
     this.logger.info({ ctx, msg: "enter", vault });
     // Keep track of which notes in cache no longer exist
     const unseenKeys = this.cache.getCacheEntryKeys();
-    const config = DConfig.readConfigSync(this.engine.wsRoot);
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(this.engine.wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
     const errors: IDendronError<any>[] = [];
 
     // get root note
     if (_.isUndefined(fileMetaDict[1])) {
       return {
-        data: noteDicts,
-        error: DendronError.createFromStatus({
-          status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
-        }),
+        noteDicts,
+        errors: [
+          DendronError.createFromStatus({
+            status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
+          }),
+        ],
       };
     }
     const rootFile = fileMetaDict[1].find((n) => n.fpath === "root.md");
     if (!rootFile) {
       return {
-        data: noteDicts,
-        error: DendronError.createFromStatus({
-          status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
-        }),
+        noteDicts,
+        errors: [
+          DendronError.createFromStatus({
+            status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
+          }),
+        ],
       };
     }
     const rootProps = await this.parseNoteProps({
@@ -140,10 +149,12 @@ export class NoteParserV2 {
     }
     if (!rootProps.data || rootProps.data.length === 0) {
       return {
-        data: noteDicts,
-        error: DendronError.createFromStatus({
-          status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
-        }),
+        noteDicts,
+        errors: [
+          DendronError.createFromStatus({
+            status: ERROR_STATUS.NO_ROOT_NOTE_FOUND,
+          }),
+        ],
       };
     }
     const rootNote = rootProps.data[0].note;
@@ -282,8 +293,8 @@ export class NoteParserV2 {
 
     this.logger.info({ ctx, msg: "post:matchSchemas" });
     return {
-      data: noteDicts,
-      error: errors.length > 0 ? new DendronCompositeError(errors) : undefined,
+      noteDicts,
+      errors,
     };
   }
 
@@ -298,7 +309,7 @@ export class NoteParserV2 {
     noteDicts?: NoteDicts;
     addParent: boolean;
     vault: DVault;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }): Promise<RespV2<NoteChangeEntry[]>> {
     const cleanOpts = _.defaults(opts, {
       addParent: true,
@@ -366,7 +377,7 @@ export class NoteParserV2 {
   }: {
     fpath: string;
     vault: DVault;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }): Promise<RespV2<NoteProps>> {
     const content = fs.readFileSync(fpath, { encoding: "utf8" });
     const { name } = path.parse(fpath);
@@ -395,14 +406,14 @@ export class NoteParserV2 {
         // No frontmatter exists for this file, return error
         return {
           error: new DendronError({
-            message: `File "${fpath}" is missing frontmatter. Please delete file and recreate note`,
+            message: `File "${fpath}" is missing frontmatter.`,
             severity: ERROR_SEVERITY.MINOR,
           }),
         };
       }
     }
     // If hash is different, then we update all links and anchors ^link-anchor
-    note = string2Note({ content, fname: cleanName(name), vault });
+    note = string2Note({ content, fname: name, vault });
     note.contentHash = sig;
     // Link/anchor errors should be logged but not interfere with rest of parsing
     let error: IDendronError | null = null;

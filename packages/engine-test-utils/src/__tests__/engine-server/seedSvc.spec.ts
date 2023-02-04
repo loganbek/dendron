@@ -4,8 +4,13 @@ import {
   ERROR_STATUS,
   SeedConfig,
 } from "@dendronhq/common-all";
-import { DConfig, tmpDir } from "@dendronhq/common-server";
-import { SeedInitMode, SeedService, SeedUtils } from "@dendronhq/engine-server";
+import { tmpDir } from "@dendronhq/common-server";
+import {
+  SeedInitMode,
+  SeedService,
+  SeedUtils,
+  WorkspaceService,
+} from "@dendronhq/engine-server";
 import os from "os";
 import path from "path";
 import { runEngineTestV5 } from "../../engine";
@@ -319,7 +324,10 @@ runTest("init", () => {
             },
             expect
           );
-          expect(DConfig.getOrCreate(wsRoot).seeds).toEqual(undefined);
+          expect(
+            (await WorkspaceService.getOrCreateConfig(wsRoot))._unsafeUnwrap()
+              .workspace.seeds
+          ).toEqual(undefined);
         },
         {
           expect,
@@ -358,7 +366,10 @@ runTest("init", () => {
             fpath: path.join(wsRoot, "dendron.yml"),
             snapshot: true,
           });
-          expect(DConfig.getOrCreate(wsRoot).seeds).toEqual(undefined);
+          expect(
+            (await WorkspaceService.getOrCreateConfig(wsRoot))._unsafeUnwrap()
+              .workspace.seeds
+          ).toEqual(undefined);
         },
         {
           expect,
@@ -428,7 +439,7 @@ runTest("helpers", () => {
         const id = "dendron.no-exist";
 
         const seedService = new SeedService({ wsRoot });
-        expect(seedService.isSeedInWorkspace(id)).toBeFalsy();
+        expect(await seedService.isSeedInWorkspace(id)).toBeFalsy();
       },
       {
         expect,
@@ -440,7 +451,7 @@ runTest("helpers", () => {
     await runEngineTestV5(
       async ({ wsRoot }) => {
         const seedService = new SeedService({ wsRoot });
-        const seedsInWS = seedService.getSeedsInWorkspace();
+        const seedsInWS = await seedService.getSeedsInWorkspace();
 
         expect(seedsInWS.length).toEqual(0);
       },
@@ -485,7 +496,7 @@ runTest("helpers", () => {
         const seedService = new SeedService({ wsRoot, registryFile });
         await seedService.addSeed({ id });
 
-        const seedsInWS = seedService.getSeedsInWorkspace();
+        const seedsInWS = await seedService.getSeedsInWorkspace();
         expect(seedsInWS.length).toEqual(1);
       },
       {

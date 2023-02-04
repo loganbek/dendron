@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { SubProcessExitType } from "@dendronhq/api-server";
 import * as Sentry from "@sentry/node";
 import {
+  ConfigService,
   CONSTANTS,
   DendronError,
   DVault,
@@ -11,11 +12,12 @@ import {
   GitEvents,
   RespV3,
   TreeViewItemLabelTypeEnum,
+  URI,
   VaultUtils,
   VSCodeEvents,
   WorkspaceType,
 } from "@dendronhq/common-all";
-import { getDurationMilliseconds } from "@dendronhq/common-server";
+import { getDurationMilliseconds, GitUtils } from "@dendronhq/common-server";
 import {
   HistoryService,
   MetadataService,
@@ -31,7 +33,6 @@ import { IDendronExtension } from "../dendronExtensionInterface";
 import { Logger } from "../logger";
 import { EngineAPIService } from "../services/EngineAPIService";
 import { StateService } from "../services/stateService";
-import { TextDocumentServiceFactory } from "../services/TextDocumentServiceFactory";
 import { AnalyticsUtils, sentryReportingCallback } from "../utils/analytics";
 import { ExtensionUtils } from "../utils/ExtensionUtils";
 import { StartupUtils } from "../utils/StartupUtils";
@@ -45,6 +46,8 @@ import { WorkspaceInitializer } from "./workspaceInitializer";
 import { CreateNoteCommand } from "../commands/CreateNoteCommand";
 import { container } from "tsyringe";
 import { NativeTreeView } from "../views/common/treeview/NativeTreeView";
+import SparkMD5 from "spark-md5";
+import { TextDocumentService } from "../services/node/TextDocumentService";
 
 function _setupTreeViewCommands(
   treeView: NativeTreeView,
@@ -100,6 +103,32 @@ function _setupTreeViewCommands(
       })
     );
   }
+
+  if (!existingCommands.includes(DENDRON_COMMANDS.TREEVIEW_EXPAND_STUB.key)) {
+    vscode.commands.registerCommand(
+      DENDRON_COMMANDS.TREEVIEW_EXPAND_STUB.key,
+      sentryReportingCallback(async (id) => {
+        await treeView.expandTreeItem(id);
+      })
+    );
+  }
+}
+
+export function trackTopLevelRepoFound(opts: { wsService: WorkspaceService }) {
+  const { wsService } = opts;
+  return wsService.getTopLevelRemoteUrl().then((remoteUrl) => {
+    if (remoteUrl !== undefined) {
+      const [protocol, provider, ...path] = GitUtils.parseGitUrl(remoteUrl);
+      const payload = {
+        protocol: protocol.replace(":", ""),
+        provider,
+        path: SparkMD5.hash(`${path[0]}/${path[1]}.git`),
+      };
+      AnalyticsUtils.track(GitEvents.TopLevelRepoFound, payload);
+      return payload;
+    }
+    return undefined;
+  });
 }
 
 function analyzeWorkspace({ wsService }: { wsService: WorkspaceService }) {
@@ -117,6 +146,7 @@ function analyzeWorkspace({ wsService }: { wsService: WorkspaceService }) {
     .catch((err) => {
       Sentry.captureException(err);
     });
+  trackTopLevelRepoFound({ wsService });
 }
 
 async function getOrPromptWSRoot(workspaceFolders: string[]) {
@@ -338,15 +368,15 @@ function togglePluginActiveContext(enabled: boolean) {
   VSCodeUtils.setContext(DendronContext.HAS_CUSTOM_MARKDOWN_VIEW, enabled);
 }
 
-function updateEngineAPI(
+async function updateEngineAPI(
   port: number | string,
   ext: IDendronExtension
-): EngineAPIService {
+): Promise<EngineAPIService> {
   // set engine api ^9dr6chh7ah9v
-  const svc = EngineAPIService.createEngine({
+  const svc = await EngineAPIService.createEngine({
     port,
     enableWorkspaceTrust: vscode.workspace.isTrusted,
-    vaults: ext.getDWorkspace().vaults,
+    vaults: await ext.getDWorkspace().vaults,
     wsRoot: ext.getDWorkspace().wsRoot,
   });
   ext.setEngine(svc);
@@ -411,7 +441,7 @@ export class WorkspaceActivator {
     // --- Setup workspace
     let workspace: DWorkspaceV2;
     if (ext.type === WorkspaceType.NATIVE) {
-      workspace = await this.initNativeWorkspace({ ext, context, wsRoot });
+      workspace = this.initNativeWorkspace({ ext, context, wsRoot });
       if (!workspace) {
         return {
           error: ErrorFactory.createInvalidStateError({
@@ -420,7 +450,7 @@ export class WorkspaceActivator {
         };
       }
     } else {
-      workspace = await this.initCodeWorkspace({ ext, context, wsRoot });
+      workspace = this.initCodeWorkspace({ ext, context, wsRoot });
     }
 
     ext.workspaceImpl = workspace;
@@ -438,7 +468,13 @@ export class WorkspaceActivator {
     Logger.info({ ctx: `${ctx}:postSetupTraits`, wsRoot });
     const currentVersion = DendronExtension.version();
     const wsService = new WorkspaceService({ wsRoot });
-    const dendronConfig = workspace.config;
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const dendronConfig = configReadResult.value;
     const stateService = new StateService({
       globalState: context.globalState,
       workspaceState: context.workspaceState,
@@ -476,7 +512,7 @@ export class WorkspaceActivator {
     // show interactive elements,
     if (!opts?.skipInteractiveElements) {
       // check for duplicate config keys and prompt for a fix.
-      StartupUtils.showDuplicateConfigEntryMessageIfNecessary({
+      await StartupUtils.showDuplicateConfigEntryMessageIfNecessary({
         ext,
       });
     }
@@ -506,7 +542,8 @@ export class WorkspaceActivator {
     Logger.info({ ctx: `${ctx}:postWsServiceInitialize`, wsRoot });
 
     // check for vaults with duplicates
-    const respNoDupVault = await checkNoDuplicateVaultNames(wsService.vaults);
+    const vaults = await wsService.vaults;
+    const respNoDupVault = await checkNoDuplicateVaultNames(vaults);
     if (!respNoDupVault) {
       return {
         error: ErrorFactory.createInvalidStateError({
@@ -521,7 +558,7 @@ export class WorkspaceActivator {
     // setup engine
     const port = await this.verifyOrStartServerProcess({ ext, wsService });
     Logger.info({ ctx: `${ctx}:verifyOrStartServerProcess`, port });
-    const engine = updateEngineAPI(port, ext);
+    const engine = await updateEngineAPI(port, ext);
     Logger.info({ ctx: `${ctx}:exit` });
 
     return { data: { workspace, engine, wsService } };
@@ -544,7 +581,7 @@ export class WorkspaceActivator {
     }): Promise<RespV3<boolean>> {
     const ctx = "WorkspaceActivator:activate";
     // setup services
-    context.subscriptions.push(TextDocumentServiceFactory.create(ext));
+    context.subscriptions.push(container.resolve(TextDocumentService));
 
     // Reload
     WSUtils.showActivateProgress();
@@ -575,7 +612,8 @@ export class WorkspaceActivator {
       };
     }
 
-    ExtensionUtils.setWorkspaceContextOnActivate(wsService.config);
+    const config = await wsService.config;
+    ExtensionUtils.setWorkspaceContextOnActivate(config);
     MetadataService.instance().setDendronWorkspaceActivated();
     Logger.info({ ctx, msg: "fin startClient", durationReloadWorkspace });
 
@@ -614,7 +652,7 @@ export class WorkspaceActivator {
     return { data: true };
   }
 
-  async initCodeWorkspace({ context, wsRoot }: WorkspaceActivatorOpts) {
+  initCodeWorkspace({ context, wsRoot }: WorkspaceActivatorOpts) {
     const assetUri = VSCodeUtils.getAssetUri(context);
     const ws = new DendronCodeWorkspace({
       wsRoot,
@@ -624,7 +662,7 @@ export class WorkspaceActivator {
     return ws;
   }
 
-  async initNativeWorkspace({ context, wsRoot }: WorkspaceActivatorOpts) {
+  initNativeWorkspace({ context, wsRoot }: WorkspaceActivatorOpts) {
     const assetUri = VSCodeUtils.getAssetUri(context);
     const ws = new DendronNativeWorkspace({
       wsRoot,

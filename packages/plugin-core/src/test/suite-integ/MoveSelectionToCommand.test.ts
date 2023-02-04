@@ -18,36 +18,56 @@ suite("MoveSelectionToCommand", function () {
             fname: "active",
             vault: vaults[0],
             wsRoot,
-            body: ["## Stuff", "one", "two", "three"].join("\n"),
+            body: [
+              "## Stuff",
+              "one",
+              "two",
+              "three",
+              "",
+              "some text ^test",
+              "",
+              "same file [[#^test]]",
+            ].join("\n"),
             genRandomId: true,
           });
           await NoteTestUtilsV4.createNote({
             fname: "refnote",
             vault: vaults[0],
             wsRoot,
-            body: "[[stuff|active#stuff]]",
+            body: [
+              "[[stuff|active#stuff]]",
+              "[[link to anchor|active#^test]]",
+            ].join("\n"),
             genRandomId: true,
           });
         },
+        timeout: 3e3,
       },
       () => {
         test("THEN selection is moved to destination, selection is replaced, and backlinks are updated", async () => {
           const extension = ExtensionProvider.getExtension();
-          const { vaults } = extension.getDWorkspace();
+          const vaults = await extension.getDWorkspace().vaults;
           await extension.wsUtils.openNote(activeNote);
           const editor = vscode.window.activeTextEditor;
           const cmd = new MoveSelectionToCommand(extension);
           editor!.selection = new vscode.Selection(
             new vscode.Position(7, 0),
-            new vscode.Position(11, 0)
+            new vscode.Position(13, 0)
           );
 
           await cmd.run({
             initialValue: "newNote",
             noConfirm: true,
           });
+          const originalNote = (
+            await extension.getEngine().findNotes({
+              fname: "active",
+              vault: vaults[0],
+            })
+          )[0];
+          expect(originalNote.body.includes("## Stuff")).toBeFalsy();
+          expect(originalNote.body.includes("same file [[newNote#^test]]"));
 
-          expect(editor?.document.getText().includes("## Stuff")).toBeFalsy();
           const newNote = (
             await extension.getEngine().findNotes({
               fname: "newNote",
@@ -55,14 +75,18 @@ suite("MoveSelectionToCommand", function () {
             })
           )[0];
           expect(newNote).toBeTruthy();
-          expect(newNote.body.trim()).toEqual("## Stuff\none\ntwo\nthree");
+          expect(newNote.body.trim()).toEqual(
+            "## Stuff\none\ntwo\nthree\n\nsome text ^test"
+          );
           const postRunRefNote = (
             await extension.getEngine().findNotes({
               fname: "refnote",
               vault: vaults[0],
             })
           )[0];
-          expect(postRunRefNote.body).toEqual("[[stuff|newNote#stuff]]");
+          expect(postRunRefNote.body).toEqual(
+            "[[stuff|newNote#stuff]]\n[[link to anchor|newNote#^test]]"
+          );
         });
       }
     );
@@ -75,14 +99,26 @@ suite("MoveSelectionToCommand", function () {
             fname: "active",
             vault: vaults[0],
             wsRoot,
-            body: ["## Stuff", "one", "two", "three"].join("\n"),
+            body: [
+              "## Stuff",
+              "one",
+              "two",
+              "three",
+              "",
+              "some text ^test",
+              "",
+              "same file [[#^test]]",
+            ].join("\n"),
             genRandomId: true,
           });
           await NoteTestUtilsV4.createNote({
             fname: "refnote",
             vault: vaults[0],
             wsRoot,
-            body: "[[stuff|active#stuff]]",
+            body: [
+              "[[stuff|active#stuff]]",
+              "[[link to anchor|active#^test]]",
+            ].join("\n"),
             genRandomId: true,
           });
           await NoteTestUtilsV4.createNote({
@@ -97,13 +133,13 @@ suite("MoveSelectionToCommand", function () {
       () => {
         test("THEN selection is moved to destination, selection is replaced, and backlinks are updated", async () => {
           const extension = ExtensionProvider.getExtension();
-          const { vaults } = extension.getDWorkspace();
+          const vaults = await extension.getDWorkspace().vaults;
           await extension.wsUtils.openNote(activeNote);
           const editor = vscode.window.activeTextEditor;
           const cmd = new MoveSelectionToCommand(extension);
           editor!.selection = new vscode.Selection(
             new vscode.Position(7, 0),
-            new vscode.Position(11, 0)
+            new vscode.Position(13, 0)
           );
 
           await cmd.run({
@@ -111,7 +147,14 @@ suite("MoveSelectionToCommand", function () {
             noConfirm: true,
           });
 
-          expect(editor?.document.getText().includes("## Stuff")).toBeFalsy();
+          const originalNote = (
+            await extension.getEngine().findNotes({
+              fname: "active",
+              vault: vaults[0],
+            })
+          )[0];
+          expect(originalNote.body.includes("## Stuff")).toBeFalsy();
+          expect(originalNote.body.includes("same file [[newNote#^test]]"));
           const anotherNote = (
             await extension.getEngine().findNotes({
               fname: "anotherNote",
@@ -119,7 +162,7 @@ suite("MoveSelectionToCommand", function () {
             })
           )[0];
           expect(anotherNote.body.trim()).toEqual(
-            "anotherNote\n\n## Stuff\none\ntwo\nthree"
+            "anotherNote\n\n## Stuff\none\ntwo\nthree\n\nsome text ^test"
           );
           const postRunRefNote = (
             await extension.getEngine().findNotes({
@@ -127,7 +170,9 @@ suite("MoveSelectionToCommand", function () {
               vault: vaults[0],
             })
           )[0];
-          expect(postRunRefNote.body).toEqual("[[stuff|anotherNote#stuff]]");
+          expect(postRunRefNote.body).toEqual(
+            "[[stuff|anotherNote#stuff]]\n[[link to anchor|anotherNote#^test]]"
+          );
         });
       }
     );

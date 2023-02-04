@@ -27,6 +27,7 @@ import { VSCodeUtils } from "../vsCodeUtils";
 import { LinkUtils } from "@dendronhq/unified";
 import { AutoCompleter } from "../utils/autoCompleter";
 import { AutoCompletableRegistrar } from "../utils/registers/AutoCompletableRegistrar";
+import { ExtensionProvider } from "../ExtensionProvider";
 
 type CommandInput = {
   source?: string;
@@ -59,12 +60,14 @@ export class MergeNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
     this.extension = ext;
   }
 
-  private createLookupController(): ILookupControllerV3 {
+  private async createLookupController(): Promise<ILookupControllerV3> {
     const opts: LookupControllerV3CreateOpts = {
       nodeType: "note",
       disableVaultSelection: true,
     };
-    const controller = this.extension.lookupControllerFactory.create(opts);
+    const controller = await this.extension.lookupControllerFactory.create(
+      opts
+    );
     return controller;
   }
 
@@ -99,7 +102,7 @@ export class MergeNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
   }
 
   async gatherInputs(opts: CommandOpts): Promise<CommandOpts | undefined> {
-    const lc = this.createLookupController();
+    const lc = await this.createLookupController();
     const activeNote = await this.extension.wsUtils.getActiveNote();
     const provider = this.createLookupProvider({
       activeNote,
@@ -112,13 +115,19 @@ export class MergeNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
         logger: this.L,
         onDone: async (event: HistoryEvent) => {
           const data: NoteLookupProviderSuccessResp = event.data;
+          const engine = ExtensionProvider.getEngine();
+          const resp = await engine.getNote(data.selectedItems[0].id);
+          if (resp.error) {
+            this.L.error({ error: resp.error });
+            return;
+          }
           await this.prepareProxyMetricPayload({
             sourceNote: activeNote,
-            destNote: data.selectedItems[0],
+            destNote: resp.data,
           });
           resolve({
             sourceNote: activeNote,
-            destNote: data.selectedItems[0],
+            destNote: resp.data,
           });
           disposable?.dispose();
           VSCodeUtils.setContext(DendronContext.NOTE_LOOK_UP_ACTIVE, false);

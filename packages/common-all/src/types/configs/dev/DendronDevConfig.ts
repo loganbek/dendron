@@ -31,7 +31,7 @@ export type DendronDevConfig = {
    * - plugin: Uses VSCode's builtin watcher
    * - engine: Uses the engine watcher, watching the files directly without VSCode
    */
-  forceWatcherType?: "plugin" | "engine";
+  forceWatcherType?: ForceWatcherType;
   /**
    * Enable export pod v2
    */
@@ -48,7 +48,25 @@ export type DendronDevConfig = {
    * False (Default) -> renders note references inline.
    */
   enableExperimentalIFrameNoteRef?: boolean;
+  /**
+   * Enable engine v3
+   * True -> Use engine v3 as backend
+   * False (Default) -> Continue to use engine v3 as backend
+   */
+  enableEngineV3?: boolean;
+
+  /**
+   * Uses SQLite as the metadata engine (the non-Prisma version). enableEngineV3
+   * must also be set to true for this to work.
+   */
+  useSqlite?: boolean;
+  /**
+   * Feature flag to enable note references
+   */
+  enableExperimentalInlineNoteRef?: boolean;
 };
+
+export type ForceWatcherType = "plugin" | "engine";
 
 /**
  * Generates defaults for {@link DendronDevConfig}

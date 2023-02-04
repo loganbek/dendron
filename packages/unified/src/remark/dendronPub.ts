@@ -3,7 +3,7 @@ import {
   DendronError,
   DVault,
   ERROR_SEVERITY,
-  IntermediateDendronConfig,
+  DendronConfig,
   isNotUndefined,
   isWebUri,
   NoteDictsUtils,
@@ -157,7 +157,7 @@ class NodeUrlHandler {
     if (!isWebUri(node.url) && !NodeUrlHandler.isSamePageHeaderUrl(node.url)) {
       const { config } = MDUtilsV5.getProcData(proc);
       //handle assetPrefix
-      const publishingConfig = ConfigUtils.getPublishingConfig(config);
+      const publishingConfig = ConfigUtils.getPublishing(config);
       const assetsPrefix = MDUtilsV5.isV5Active(proc)
         ? publishingConfig.assetsPrefix
         : cOpts?.assetsPrefix;
@@ -174,10 +174,14 @@ function shouldInsertTitle({ proc }: { proc: Processor }) {
   const opts = MDUtilsV5.getProcOpts(proc);
   const isNoteRef = !_.isNumber(data.noteRefLvl) && data.noteRefLvl > 0;
   let insertTitle;
-  if (isNoteRef || opts.flavor === ProcFlavor.BACKLINKS_PANEL_HOVER) {
+  if (
+    isNoteRef ||
+    opts.flavor === ProcFlavor.BACKLINKS_PANEL_HOVER ||
+    opts.flavor === ProcFlavor.HOVER_PREVIEW
+  ) {
     insertTitle = false;
   } else {
-    const config = data.config as IntermediateDendronConfig;
+    const config = data.config as DendronConfig;
     const shouldApplyPublishRules = MDUtilsV5.shouldApplyPublishingRules(proc);
     insertTitle = ConfigUtils.getEnableFMTitle(config, shouldApplyPublishRules);
   }
@@ -288,11 +292,11 @@ function plugin(this: Unified.Processor, opts?: PluginOpts): Transformer {
         let note: NoteProps | undefined;
         if (mode !== ProcMode.IMPORT) {
           if (noteCacheForRenderDict) {
-            note = NoteDictsUtils.findByFname(
-              valueOrig,
-              noteCacheForRenderDict,
-              vault
-            )[0];
+            note = NoteDictsUtils.findByFname({
+              fname: valueOrig,
+              noteDicts: noteCacheForRenderDict,
+              vault,
+            })[0];
           }
 
           if (!note) {
@@ -304,6 +308,7 @@ function plugin(this: Unified.Processor, opts?: PluginOpts): Transformer {
         if (mode !== ProcMode.IMPORT && value.startsWith(TAGS_HIERARCHY)) {
           const { color: maybeColor, type: colorType } = NoteUtils.color({
             fname: value,
+            note,
             vault,
           });
           const enableRandomlyColoredTagsConfig =
@@ -380,11 +385,11 @@ function plugin(this: Unified.Processor, opts?: PluginOpts): Transformer {
               ? VaultUtils.getVaultByName({ vname: data.vaultName, vaults })
               : undefined;
 
-            const target = NoteDictsUtils.findByFname(
-              valueOrig,
-              noteCacheForRenderDict,
-              targetVault
-            )[0];
+            const target = NoteDictsUtils.findByFname({
+              fname: valueOrig,
+              noteDicts: noteCacheForRenderDict,
+              vault: targetVault,
+            })[0];
 
             if (target) {
               title = target.title;
@@ -589,7 +594,7 @@ function linkExtras({
   config,
 }: {
   note?: NoteProps;
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
 }): {
   before: any[];
   after: any[];

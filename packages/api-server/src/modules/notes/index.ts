@@ -3,6 +3,7 @@ import {
   EngineInfoResp,
   EngineRenameNoteRequest,
   NoteQueryRequest,
+  QueryNotesMetaResp,
   QueryNotesResp,
   RenameNoteResp,
   RenderNoteOpts,
@@ -36,14 +37,17 @@ export class NoteController {
     const engine = ws
       ? await getWSEngine({ ws })
       : MemoryStore.instance().getEngine();
-    try {
-      const data = await engine.queryNotes({ ...opts, originalQS: opts.qs });
-      return data;
-    } catch (err) {
-      return {
-        error: new DendronError({ message: JSON.stringify(err) }),
-      };
-    }
+    return engine.queryNotes(opts.opts);
+  }
+
+  async queryMeta({
+    ws,
+    ...opts
+  }: NoteQueryRequest): Promise<QueryNotesMetaResp> {
+    const engine = ws
+      ? await getWSEngine({ ws })
+      : MemoryStore.instance().getEngine();
+    return engine.queryNotesMeta(opts.opts);
   }
 
   async info(): Promise<EngineInfoResp> {

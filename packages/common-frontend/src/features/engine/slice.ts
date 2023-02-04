@@ -7,7 +7,7 @@ import {
   NoteUtils,
   NoteFnameDictUtils,
   NoteDictsUtils,
-  IntermediateDendronConfig,
+  DendronConfig,
   SchemaModuleDict,
 } from "@dendronhq/common-all";
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
@@ -97,7 +97,10 @@ export const syncNote = createAsyncThunk(
       logger,
     });
     logger.info({ state: "pre:query" });
-    const resp = await api.noteQuery({ qs: note.fname, ws, vault: note.vault });
+    const resp = await api.noteQuery({
+      opts: { qs: note.fname, originalQS: note.fname, vault: note.vault },
+      ws,
+    });
     logger.info({ state: "post:query" });
     if (resp.error) {
       dispatch(setError(stringifyError(resp.error)));
@@ -182,7 +185,7 @@ export const engineSlice = createSlice({
       state.config = config;
       state.noteFName = NoteFnameDictUtils.createNotePropsByFnameDict(notes);
     },
-    setConfig: (state, action: PayloadAction<IntermediateDendronConfig>) => {
+    setConfig: (state, action: PayloadAction<DendronConfig>) => {
       state.config = action.payload;
     },
     setNotes: (state, action: PayloadAction<NotePropsByIdDict>) => {

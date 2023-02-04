@@ -1,5 +1,4 @@
-import { ConfigUtils } from "@dendronhq/common-all";
-import { DConfig } from "@dendronhq/common-server";
+import { ConfigService, ConfigUtils, URI } from "@dendronhq/common-all";
 import { AssertUtils, NoteTestUtilsV4 } from "@dendronhq/common-test-utils";
 import { getParsingDependencyDicts, MDUtilsV5 } from "@dendronhq/unified";
 import { runEngineTestV5, TestConfigUtils } from "../../..";
@@ -8,8 +7,10 @@ describe("backlinks", () => {
   describe("frontmatter tags", () => {
     test("single", async () => {
       await runEngineTestV5(
-        async ({ wsRoot, vaults, engine }) => {
-          const config = DConfig.readConfigSync(wsRoot);
+        async ({ vaults, engine, wsRoot }) => {
+          const config = (
+            await ConfigService.instance().readConfig(URI.file(wsRoot))
+          )._unsafeUnwrap();
           const vault = vaults[0];
           const noteToRender = (
             await engine.findNotes({ fname: "tags.test", vault })
@@ -30,12 +31,10 @@ describe("backlinks", () => {
           }).process("");
           // should be one backlink
           expect(resp).toMatchSnapshot();
-          expect(
-            await AssertUtils.assertInString({
-              body: resp.contents as string,
-              match: [`<a href="one.html">One (vault1)</a>`],
-            })
-          ).toBeTruthy();
+          await AssertUtils.assertInString({
+            body: resp.contents as string,
+            match: [`<a href="one">One (vault1)</a>`],
+          });
         },
         {
           expect,
@@ -55,16 +54,16 @@ describe("backlinks", () => {
               vault,
               wsRoot,
             });
-            TestConfigUtils.withConfig(
+            await TestConfigUtils.withConfig(
               (config) => {
-                const v4DefaultConfig = ConfigUtils.genDefaultV4Config();
+                const DefaultConfig = ConfigUtils.genDefaultConfig();
                 ConfigUtils.setVaults(
-                  v4DefaultConfig,
+                  DefaultConfig,
                   ConfigUtils.getVaults(config)
                 );
-                return v4DefaultConfig;
+                return DefaultConfig;
               },
-              { wsRoot: opts.wsRoot }
+              { wsRoot }
             );
           },
         }
@@ -73,8 +72,10 @@ describe("backlinks", () => {
 
     test("multiple", async () => {
       await runEngineTestV5(
-        async ({ wsRoot, vaults, engine }) => {
-          const config = DConfig.readConfigSync(wsRoot);
+        async ({ vaults, engine, wsRoot }) => {
+          const config = (
+            await ConfigService.instance().readConfig(URI.file(wsRoot))
+          )._unsafeUnwrap();
           const vault = vaults[0];
           const noteToRender = (
             await engine.findNotes({ fname: "tags.test", vault })
@@ -95,15 +96,13 @@ describe("backlinks", () => {
           }).process("");
           // should be one backlink
           expect(resp).toMatchSnapshot();
-          expect(
-            await AssertUtils.assertInString({
-              body: resp.contents as string,
-              match: [
-                `<a href="one.html">One (vault1)</a>`,
-                `<a href="two.html">Two (vault1)</a>`,
-              ],
-            })
-          ).toBeTruthy();
+          await AssertUtils.assertInString({
+            body: resp.contents as string,
+            match: [
+              `<a href="one">One (vault1)</a>`,
+              `<a href="two">Two (vault1)</a>`,
+            ],
+          });
         },
         {
           expect,
@@ -132,17 +131,6 @@ describe("backlinks", () => {
               vault,
               wsRoot,
             });
-            TestConfigUtils.withConfig(
-              (config) => {
-                const v4DefaultConfig = ConfigUtils.genDefaultV4Config();
-                ConfigUtils.setVaults(
-                  v4DefaultConfig,
-                  ConfigUtils.getVaults(config)
-                );
-                return v4DefaultConfig;
-              },
-              { wsRoot: opts.wsRoot }
-            );
           },
         }
       );
@@ -151,8 +139,10 @@ describe("backlinks", () => {
   //
   test("hashtag", async () => {
     await runEngineTestV5(
-      async ({ wsRoot, vaults, engine }) => {
-        const config = DConfig.readConfigSync(wsRoot);
+      async ({ vaults, engine, wsRoot }) => {
+        const config = (
+          await ConfigService.instance().readConfig(URI.file(wsRoot))
+        )._unsafeUnwrap();
         const vault = vaults[0];
         const noteToRender = (
           await engine.findNotes({ fname: "tags.test", vault })

@@ -1,17 +1,14 @@
 import {
-  configIsV4,
   ConfigUtils,
   CONSTANTS,
   createSerializedFuseNoteIndex,
   DendronError,
   DendronPublishingConfig,
-  DendronSiteConfig,
   DEngineClient,
   ERROR_SEVERITY,
   getStage,
-  IntermediateDendronConfig,
+  DendronConfig,
   isWebUri,
-  NoteFnameDictUtils,
   NoteProps,
   NotePropsByIdDict,
   NoteUtils,
@@ -23,14 +20,18 @@ import {
   parseSidebarConfig,
   DisabledSidebar,
   DefaultSidebar,
+  NoteDicts,
+  NoteDictsUtils,
+  ConfigService,
 } from "@dendronhq/common-all";
-import {
-  DConfig,
-  simpleGit,
-  SimpleGitResetMode,
-} from "@dendronhq/common-server";
+import { simpleGit, SimpleGitResetMode } from "@dendronhq/common-server";
 import { execa, SiteUtils } from "@dendronhq/engine-server";
-import { getRefId, MDUtilsV5, ProcFlavor } from "@dendronhq/unified";
+import {
+  getParsingDependencyDicts,
+  getRefId,
+  MDUtilsV5,
+  ProcFlavor,
+} from "@dendronhq/unified";
 import { JSONSchemaType } from "ajv";
 import fs from "fs-extra";
 import _ from "lodash";
@@ -48,10 +49,10 @@ const TEMPLATE_BRANCH = "main";
 const $$ = execa.command;
 
 type NextjsExportPodCustomOpts = {
-  overrides?: Partial<DendronSiteConfig>;
+  overrides?: Partial<DendronPublishingConfig>;
 };
 
-export type BuildOverrides = Pick<DendronSiteConfig, "siteUrl">;
+export type BuildOverrides = Pick<DendronPublishingConfig, "siteUrl">;
 
 export enum PublishTarget {
   GITHUB = "github",
@@ -72,33 +73,24 @@ function getSiteConfig({
   config,
   overrides,
 }: {
-  config: IntermediateDendronConfig;
-  overrides?: Partial<DendronSiteConfig> | Partial<DendronPublishingConfig>;
-}): DendronSiteConfig | DendronPublishingConfig {
-  if (configIsV4(config)) {
-    const siteConfig = ConfigUtils.getSite(config) as DendronSiteConfig;
-    return {
-      ...siteConfig,
-      ...overrides,
-      usePrettyLinks: true,
-    } as DendronSiteConfig;
-  } else {
-    const publishingConfig = ConfigUtils.getPublishing(
-      config
-    ) as DendronPublishingConfig;
-    return {
-      ...publishingConfig,
-      ...overrides,
-      enablePrettyLinks: true,
-    } as DendronPublishingConfig;
-  }
+  config: DendronConfig;
+  overrides?: Partial<DendronPublishingConfig>;
+}): DendronPublishingConfig {
+  const publishingConfig = ConfigUtils.getPublishing(
+    config
+  ) as DendronPublishingConfig;
+  return {
+    ...publishingConfig,
+    ...overrides,
+    enablePrettyLinks: true,
+  } as DendronPublishingConfig;
 }
 
 async function validateSiteConfig({
   config,
   wsRoot,
 }: {
-  config: DendronSiteConfig | DendronPublishingConfig;
+  config: DendronPublishingConfig;
   wsRoot: string;
 }): Promise<RespV3<undefined>> {
   if (ConfigUtils.isDendronPublishingConfig(config)) {
@@ -281,20 +273,13 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     engine,
     note,
     engineConfig,
+    noteCacheForRenderDict,
   }: {
     engine: DEngineClient;
     note: NoteProps;
-    engineConfig: IntermediateDendronConfig;
+    engineConfig: DendronConfig;
+    noteCacheForRenderDict: NoteDicts;
   }) {
-    const notesByFname = NoteFnameDictUtils.createNotePropsByFnameDict(
-      engine.notes
-    );
-
-    const noteCacheForRenderDict = {
-      notesById: engine.notes,
-      notesByFname,
-    };
-
     const proc = MDUtilsV5.procRehypeFull(
       {
         noteToRender: note,
@@ -315,7 +300,7 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     siteConfig,
     dest,
   }: {
-    siteConfig: DendronSiteConfig | DendronPublishingConfig;
+    siteConfig: DendronPublishingConfig;
     dest: URI;
   }) {
     // add .env.production, next will use this to replace `process.env` vars when building
@@ -336,7 +321,7 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     dest,
   }: {
     wsRoot: string;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     dest: string;
   }) {
     const ctx = "copyAssets";
@@ -344,7 +329,7 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     const destPublicPath = path.join(dest, "public");
     fs.ensureDirSync(destPublicPath);
     const siteAssetsDir = path.join(destPublicPath, "assets");
-    const publishingConfig = ConfigUtils.getPublishingConfig(config);
+    const publishingConfig = ConfigUtils.getPublishing(config);
 
     // if copyAssets not set, skip it
     if (!publishingConfig.copyAssets) {
@@ -432,7 +417,7 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     }
     // get cname
     const githubConfig = ConfigUtils.getGithubConfig(config);
-    const githubCname = githubConfig.cname;
+    const githubCname = githubConfig?.cname;
     if (githubCname) {
       fs.writeFileSync(path.join(destPublicPath, "CNAME"), githubCname, {
         encoding: "utf8",
@@ -471,13 +456,19 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     note,
     notesDir,
     engineConfig,
+    noteCacheForRenderDict,
   }: Parameters<NextjsExportPod["_renderNote"]>[0] & {
     notesDir: string;
-    engineConfig: IntermediateDendronConfig;
+    engineConfig: DendronConfig;
   }) {
     const ctx = `${ID}:renderBodyToHTML`;
     this.L.debug({ ctx, msg: "renderNote:pre", note: note.id });
-    const out = await this._renderNote({ engine, note, engineConfig });
+    const out = await this._renderNote({
+      engine,
+      note,
+      engineConfig,
+      noteCacheForRenderDict,
+    });
     const dst = path.join(notesDir, note.id + ".html");
     this.L.debug({ ctx, dst, msg: "writeNote" });
     return fs.writeFile(dst, out);
@@ -504,7 +495,13 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     const { dest, engine, wsRoot, config: podConfig } = opts;
     const podDstDir = path.join(dest.fsPath, "data");
     fs.ensureDirSync(podDstDir);
-    const config = DConfig.readConfigSync(wsRoot);
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
 
     const siteConfig = getSiteConfig({
       config,
@@ -531,8 +528,10 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
     await this.copyAssets({ wsRoot, config, dest: dest.fsPath });
 
     this.L.info({ ctx, msg: "filtering notes..." });
-    const engineConfig: IntermediateDendronConfig =
-      ConfigUtils.overridePublishingConfig(config, siteConfig);
+    const engineConfig: DendronConfig = ConfigUtils.overridePublishingConfig(
+      config,
+      siteConfig
+    );
 
     const { notes: publishedNotes, domains } = await SiteUtils.filterByConfig({
       engine,
@@ -569,6 +568,14 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
       vaults: engine.vaults,
     };
 
+    // The reason to use all engine notes instead of just the published notes
+    // here is because a published note may link to a private note, in which
+    // case we still "need" the private note in the cache to do the rendering,
+    // since the title of the note is used in the (Private) placeholder for the
+    // link.
+    const noteDeps = await engine.findNotes({ excludeStub: true });
+    const fullDict = NoteDictsUtils.createNoteDicts(noteDeps);
+
     // render notes
     const notesBodyDir = path.join(podDstDir, "notes");
     const notesMetaDir = path.join(podDstDir, "meta");
@@ -586,6 +593,7 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
             note,
             notesDir: notesBodyDir,
             engineConfig,
+            noteCacheForRenderDict: fullDict,
           }),
           this.renderMetaToJSON({ note, notesDir: notesMetaDir }),
           this.renderBodyAsMD({ note, notesDir: notesBodyDir }),
@@ -600,22 +608,19 @@ export class NextjsExportPod extends ExportPod<NextjsExportConfig> {
         Object.keys(noteRefs).map(async (ent: string) => {
           const { refId, prettyHAST } = noteRefs![ent];
           const noteId = refId.id;
-          const noteForRef = _.get(engine.notes, noteId);
+          const noteForRef = (await engine.getNote(noteId)).data;
 
           // shouldn't happen
           if (!noteForRef) {
             throw Error(`no note found for ${JSON.stringify(refId)}`);
           }
 
-          const notesByFname = NoteFnameDictUtils.createNotePropsByFnameDict(
-            engine.notes
+          const noteCacheForRenderDict = await getParsingDependencyDicts(
+            noteForRef,
+            engine,
+            config,
+            engine.vaults
           );
-
-          const noteCacheForRenderDict = {
-            notesById: engine.notes,
-            notesByFname,
-          };
-
           const proc = MDUtilsV5.procRehypeFull(
             {
               // engine,

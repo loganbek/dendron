@@ -5,16 +5,11 @@ import {
   DNodeUtils,
   LabelUtils,
   NoteLookupUtils,
-  NoteProps,
-  NoteQuickInput,
-  CreateNewWithTemplateQuickPickLabelHighlightTestGroups,
+  NotePropsMeta,
+  NoteQuickInputV2,
   TransformedQueryString,
-  _2022_09_CREATE_NEW_WITH_TEMPLATE_QUICKPICK_LABEL_HIGHLIGHT_TEST,
 } from "@dendronhq/common-all";
-import {
-  getDurationMilliseconds,
-  SegmentClient,
-} from "@dendronhq/common-server";
+import { getDurationMilliseconds } from "@dendronhq/common-server";
 import { LinkUtils } from "@dendronhq/unified";
 import _ from "lodash";
 import path from "path";
@@ -83,7 +78,7 @@ export class NotePickerUtils {
   }: {
     fname: string;
     detail: string;
-  }): DNodePropsQuickInputV2 {
+  }): NoteQuickInputV2 {
     const props = DNodeUtils.create({
       id: CREATE_NEW_LABEL,
       fname,
@@ -111,27 +106,15 @@ export class NotePickerUtils {
       // @ts-ignore
       vault: {},
     });
-    const ABUserGroup =
-      _2022_09_CREATE_NEW_WITH_TEMPLATE_QUICKPICK_LABEL_HIGHLIGHT_TEST.getUserGroup(
-        SegmentClient.instance().anonymousId
-      );
 
-    let label: string;
-    if (
-      ABUserGroup ===
-      CreateNewWithTemplateQuickPickLabelHighlightTestGroups.label
-    ) {
-      label = LabelUtils.createLabelWithHighlight({
-        value: CREATE_NEW_WITH_TEMPLATE_LABEL,
-        highlight: {
-          value: "$(beaker) [New] ",
-          location: "prefix",
-          expirationDate: new Date("2022-11-01"),
-        },
-      });
-    } else {
-      label = CREATE_NEW_WITH_TEMPLATE_LABEL;
-    }
+    const label = LabelUtils.createLabelWithHighlight({
+      value: CREATE_NEW_WITH_TEMPLATE_LABEL,
+      highlight: {
+        value: "$(beaker) [New] ",
+        location: "prefix",
+        expirationDate: new Date("2022-11-15"),
+      },
+    });
 
     return {
       ...props,
@@ -149,7 +132,7 @@ export class NotePickerUtils {
     return initialValue;
   }
 
-  static getSelection(picker: DendronQuickPickerV2): NoteQuickInput[] {
+  static getSelection(picker: DendronQuickPickerV2): NoteQuickInputV2[] {
     return [...picker.selectedItems];
   }
 
@@ -158,17 +141,14 @@ export class NotePickerUtils {
   }: {
     engine: DEngineClient;
   }) => {
-    const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
     const nodes = await NoteLookupUtils.fetchRootResultsFromEngine(engine);
     return Promise.all(
       nodes.map(async (ent) => {
-        return DNodeUtils.enhancePropForQuickInput({
-          wsRoot,
+        return DNodeUtils.enhancePropForQuickInputV4({
           props: ent,
           schema: ent.schema
             ? (await engine.getSchema(ent.schema.moduleId)).data
             : undefined,
-          vaults,
         });
       })
     );
@@ -205,17 +185,14 @@ export class NotePickerUtils {
   }
 
   private static async enhanceNoteForQuickInput(input: {
-    note: NoteProps;
+    note: NotePropsMeta;
     engine: DEngineClient;
   }) {
-    const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
-    return DNodeUtils.enhancePropForQuickInputV3({
-      wsRoot,
+    return DNodeUtils.enhancePropForQuickInputV4({
       props: input.note,
       schema: input.note.schema
         ? (await input.engine.getSchema(input.note.schema.moduleId)).data
         : undefined,
-      vaults,
     });
   }
 
@@ -227,18 +204,17 @@ export class NotePickerUtils {
     const ctx = "createPickerItemsFromEngine";
     const start = process.hrtime();
     const { picker, transformedQuery, originalQS } = opts;
-    const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+    const { engine } = ExtensionProvider.getDWorkspace();
     // if we are doing a query, reset pagination options
     PickerUtilsV2.resetPaginationOpts(picker);
 
-    const resp = await engine.queryNotes({
+    let nodes = await engine.queryNotesMeta({
       qs: transformedQuery.queryString,
       onlyDirectChildren: transformedQuery.onlyDirectChildren,
       originalQS,
     });
-    let nodes = resp.data;
 
-    if (!nodes) {
+    if (nodes.length === 0) {
       return [];
     }
 
@@ -257,15 +233,13 @@ export class NotePickerUtils {
     }
     const updatedItems = await Promise.all(
       nodes.map(async (ent) =>
-        DNodeUtils.enhancePropForQuickInputV3({
-          wsRoot,
+        DNodeUtils.enhancePropForQuickInputV4({
           props: ent,
           schema: ent.schema
             ? (
                 await engine.getSchema(ent.schema.moduleId)
               ).data
             : undefined,
-          vaults,
           alwaysShow: picker.alwaysShowAll,
         })
       )

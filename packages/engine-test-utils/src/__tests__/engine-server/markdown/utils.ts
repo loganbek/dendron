@@ -1,12 +1,12 @@
 import {
-  IntermediateDendronConfig,
+  ConfigService,
+  DendronConfig,
   DEngineClient,
-  DuplicateNoteActionEnum,
   DVault,
   NoteDictsUtils,
   NoteProps,
+  URI,
 } from "@dendronhq/common-all";
-import { DConfig } from "@dendronhq/common-server";
 import {
   AssertUtils,
   RunEngineTestFunctionV4,
@@ -64,7 +64,7 @@ export const createProcForTest = async (opts: {
   engine: DEngineClient;
   dest: DendronASTDest;
   vault: DVault;
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
   fname?: string;
   useIdAsLink?: boolean;
   parsingDependenciesByFname?: string[];
@@ -76,7 +76,9 @@ export const createProcForTest = async (opts: {
   // Using IDs for the links breaks snapshots since note ids are random.
   if (opts.useIdAsLink === undefined) opts.useIdAsLink = false;
 
-  const noteToRender = (await engine.findNotes({ fname, vault }))[0];
+  const noteToRender = (
+    await engine.findNotes({ fname: fname || "root", vault })
+  )[0];
   const noteCacheForRenderDict = await getParsingDependencyDicts(
     noteToRender,
     engine,
@@ -84,23 +86,23 @@ export const createProcForTest = async (opts: {
     engine.vaults
   );
   if (parsingDependenciesByFname) {
-    parsingDependenciesByFname.map(async (dep) => {
-      (await engine.findNotes({ fname: dep })).forEach((noteProps) => {
-        NoteDictsUtils.add(noteProps, noteCacheForRenderDict);
-      });
-    });
+    await Promise.all(
+      parsingDependenciesByFname.map(async (dep) => {
+        (await engine.findNotes({ fname: dep })).forEach((noteProps) => {
+          NoteDictsUtils.add(noteProps, noteCacheForRenderDict);
+        });
+      })
+    );
   }
 
   if (opts.parsingDependenciesByNoteProps) {
-    opts.parsingDependenciesByNoteProps.map(async (dep) => {
+    opts.parsingDependenciesByNoteProps.map((dep) => {
       NoteDictsUtils.add(dep, noteCacheForRenderDict);
     });
   }
 
   const data = {
-    noteToRender: (
-      await engine.findNotes({ fname: fname || "root", vault })
-    )[0],
+    noteToRender,
     noteCacheForRenderDict,
     dest,
     fname: fname || "root",
@@ -113,7 +115,9 @@ export const createProcForTest = async (opts: {
         useId: opts.useIdAsLink,
       },
     },
-    config: DConfig.readConfigSync(engine.wsRoot),
+    config: (
+      await ConfigService.instance().readConfig(URI.file(engine.wsRoot))
+    )._unsafeUnwrap(),
     vaults: engine.vaults,
   };
   if (dest === DendronASTDest.HTML) {
@@ -253,8 +257,10 @@ export const createProcCompileTests = (opts: {
             testCase: new TestPresetEntryV4(
               async (presetOpts) => {
                 const { wsRoot, vaults: optsVaults, engine } = presetOpts;
-                const config = DConfig.readConfigSync(wsRoot);
-                const vaults = config.vaults ?? optsVaults;
+                const config = (
+                  await ConfigService.instance().readConfig(URI.file(wsRoot))
+                )._unsafeUnwrap();
+                const vaults = config.workspace.vaults ?? optsVaults;
                 const vault = vaults[0];
                 let proc: Processor;
                 const noteToRender = (
@@ -334,7 +340,7 @@ export const createProcCompileTests = (opts: {
 export const dupNote = (payload: DVault | string[]) => {
   const out: any = {
     duplicateNoteBehavior: {
-      action: DuplicateNoteActionEnum.useVault,
+      action: "useVault",
     },
   };
   if (_.isArray(payload)) {
@@ -374,14 +380,18 @@ type ProcessTextV2Opts = {
   engine: DEngineClient;
   fname: string;
   vault: DVault;
-  configOverride?: IntermediateDendronConfig;
+  configOverride?: DendronConfig;
   parsingDependenciesByFname?: string[];
   parsingDependenciesByNoteProps?: NoteProps[];
 };
 
 export const processTextV2 = async (opts: ProcessTextV2Opts) => {
   const { engine, text, fname, vault, configOverride } = opts;
-  const config = configOverride || DConfig.readConfigSync(engine.wsRoot);
+  const config =
+    configOverride ||
+    (
+      await ConfigService.instance().readConfig(URI.file(engine.wsRoot))
+    )._unsafeUnwrap();
   const noteToRender = (await engine.findNotes({ fname, vault }))[0];
   const noteCacheForRenderDict = await getParsingDependencyDicts(
     noteToRender,

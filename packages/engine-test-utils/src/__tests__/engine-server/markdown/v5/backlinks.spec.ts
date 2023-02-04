@@ -42,10 +42,13 @@ describe("GIVEN dendron.yml default", () => {
   describe("WHEN enableBackLinks = false", () => {
     const setup = async (opts: WorkspaceOpts) => {
       await ENGINE_HOOKS.setupLinks(opts);
-      TestConfigUtils.withConfig((config) => {
-        config.publishing!.enableBackLinks = false;
-        return config;
-      }, opts);
+      await TestConfigUtils.withConfig(
+        (config) => {
+          config.publishing!.enableBackLinks = false;
+          return config;
+        },
+        { wsRoot: opts.wsRoot }
+      );
     };
 
     describe("AND WHEN no note override", () => {
@@ -168,9 +171,8 @@ describe("GIVEN dendron.yml default", () => {
             },
           },
           preSetupHook: async (opts) => {
-            const { wsRoot } = opts;
             await ENGINE_HOOKS.setupLinks(opts);
-            TestConfigUtils.withConfig(
+            await TestConfigUtils.withConfig(
               (config) => {
                 ConfigUtils.setPublishProp(config, "siteHierarchies", [
                   "alpha",
@@ -183,9 +185,7 @@ describe("GIVEN dendron.yml default", () => {
                 ConfigUtils.setPublishProp(config, "siteIndex", "alpha");
                 return config;
               },
-              {
-                wsRoot,
-              }
+              { wsRoot: opts.wsRoot }
             );
           },
         })
@@ -214,7 +214,7 @@ describe("GIVEN dendron.yml default", () => {
               const { resp } = extra;
               await checkVFile(
                 resp,
-                `<a href="/notes/not-secret.html">Not Secret (vaultThree)</a>`
+                `<a href="/notes/not-secret">Not Secret (vaultThree)</a>`
               );
               await checkNotInVFile(
                 resp,
@@ -227,14 +227,14 @@ describe("GIVEN dendron.yml default", () => {
         preSetupHook: async (opts: any) => {
           await ENGINE_HOOKS_MULTI.setupBasicMulti(opts);
 
-          TestConfigUtils.withConfig(
+          await TestConfigUtils.withConfig(
             (config) => {
               const vaults = ConfigUtils.getVaults(config);
               const bvault = vaults.find((ent: any) => ent.fsPath === "vault2");
               bvault!.visibility = DVaultVisibility.PRIVATE;
-              const v4DefaultConfig = ConfigUtils.genDefaultV4Config();
-              ConfigUtils.setVaults(v4DefaultConfig, vaults);
-              return v4DefaultConfig;
+              const defaultConfig = ConfigUtils.genDefaultConfig();
+              ConfigUtils.setVaults(defaultConfig, vaults);
+              return defaultConfig;
             },
             { wsRoot: opts.wsRoot }
           );

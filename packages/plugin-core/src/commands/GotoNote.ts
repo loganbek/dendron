@@ -1,6 +1,8 @@
 import {
   assertUnreachable,
   Awaited,
+  BacklinkUtils,
+  ConfigUtils,
   DNoteAnchorBasic,
   getSlugger,
   InvalidFilenameReason,
@@ -115,7 +117,9 @@ export class GotoNoteCommand extends BasicCommand<
 
   private async maybeSetOptsFromExistingNote(opts: GoToNoteCommandOpts) {
     const engine = this.extension.getEngine();
-    const notes = await engine.findNotesMeta({ fname: opts.qs });
+    const notes = (await engine.findNotesMeta({ fname: opts.qs })).filter(
+      (note) => !note.id.startsWith(NoteUtils.FAKE_ID_PREFIX)
+    );
     if (notes.length === 1) {
       // There's just one note, so that's the one we'll go with.
       opts.vault = notes[0].vault;
@@ -149,14 +153,16 @@ export class GotoNoteCommand extends BasicCommand<
   private async setOptsFromNewNote(opts: GoToNoteCommandOpts) {
     // Depending on the config, we can either
     // automatically pick the vault or we'll prompt for it.
+    const config = await this.extension.getDWorkspace().config;
     const confirmVaultSetting =
-      this.extension.getDWorkspace().config["lookupConfirmVaultOnCreate"];
+      ConfigUtils.getLookup(config).note.confirmVaultOnCreate;
+
     const selectionMode =
       confirmVaultSetting !== true
         ? VaultSelectionMode.smart
         : VaultSelectionMode.alwaysPrompt;
 
-    const currentVault = PickerUtilsV2.getVaultForOpenEditor();
+    const currentVault = await PickerUtilsV2.getVaultForOpenEditor();
     const selectedVault = await PickerUtilsV2.getOrPromptVaultForNewNote({
       vault: currentVault,
       fname: opts.qs!,
@@ -168,6 +174,9 @@ export class GotoNoteCommand extends BasicCommand<
       return null;
     }
     opts.vault = selectedVault;
+
+    // this is needed to populate the new note's backlink after it is created
+    opts.originNote = await this.wsUtils.getActiveNote();
     return opts;
   }
 
@@ -176,7 +185,7 @@ export class GotoNoteCommand extends BasicCommand<
 
     if (opts.qs && !opts.vault) {
       // Special case: some code expects GotoNote to default to current vault if qs is provided but vault isn't
-      opts.vault = PickerUtilsV2.getVaultForOpenEditor();
+      opts.vault = await PickerUtilsV2.getVaultForOpenEditor();
       return opts;
     }
 
@@ -190,7 +199,7 @@ export class GotoNoteCommand extends BasicCommand<
     if (!opts.qs) opts = await this.getQs(opts, link);
     if (!opts.vault && link.vaultName)
       opts.vault = VaultUtils.getVaultByNameOrThrow({
-        vaults: this.extension.getDWorkspace().vaults,
+        vaults: await this.extension.getDWorkspace().vaults,
         vname: link.vaultName,
       });
     if (!opts.anchor && link.anchorHeader) opts.anchor = link.anchorHeader;
@@ -308,6 +317,13 @@ export class GotoNoteCommand extends BasicCommand<
               },
             });
             note = _.merge(newNote, overrides || {});
+            const { originNote } = opts;
+            if (originNote) {
+              this.addBacklinkPointingToOrigin({
+                originNote,
+                note,
+              });
+            }
             await client.writeNote(note);
 
             // check if we should send meeting note telemetry.
@@ -372,5 +388,26 @@ export class GotoNoteCommand extends BasicCommand<
     const { fname, validationResp } = opts;
     const message = `Cannot create note ${fname}: ${validationResp.reason}`;
     window.showErrorMessage(message);
+  }
+
+  /**
+   * Given an origin note and a newly created note,
+   * add a backlink that points to the origin note
+   * to newly created note's link metadata
+   */
+  private addBacklinkPointingToOrigin(opts: {
+    originNote: NoteProps;
+    note: NoteProps;
+  }) {
+    const { originNote, note } = opts;
+    const originLinks = originNote.links;
+
+    const linkToNote = originLinks.find(
+      (link) => link.to?.fname === note.fname
+    );
+    if (linkToNote) {
+      const backlinkToOrigin = BacklinkUtils.createFromDLink(linkToNote);
+      if (backlinkToOrigin) note.links.push(backlinkToOrigin);
+    }
   }
 }

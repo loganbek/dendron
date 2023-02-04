@@ -1,5 +1,6 @@
 import {
-  IntermediateDendronConfig,
+  ConfigUtils,
+  DendronConfig,
   NoteUtils,
   Position,
   position2VSCodeRange,
@@ -43,21 +44,24 @@ export async function decorateTag({
   engine: ReducedDEngine;
   position: Position;
   lineOffset?: number;
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
 }) {
   let color: string | undefined;
+  const hashtag = (await engine.findNotesMeta({ fname }))[0];
   const { color: foundColor, type: colorType } = NoteUtils.color({
     fname,
-    // engine,
+    note: hashtag,
   });
-  if (colorType === "configured" || !config.noRandomlyColoredTags) {
+  const enableRandomlyColoredTags =
+    ConfigUtils.getPublishing(config).enableRandomlyColoredTags;
+  if (colorType === "configured" || enableRandomlyColoredTags) {
     color = foundColor;
   }
 
   const { type, errors } = await linkedNoteType({
     fname,
     engine,
-    vaults: config.workspace?.vaults ?? config.vaults ?? [],
+    vaults: config.workspace?.vaults ?? [],
   });
   const decoration: DecorationHashTag = {
     type,

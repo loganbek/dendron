@@ -1,4 +1,4 @@
-import { DConfig, tmpDir } from "@dendronhq/common-server";
+import { tmpDir } from "@dendronhq/common-server";
 import { before } from "mocha";
 import { expect } from "../testUtilsv2";
 import { describeSingleWS } from "../testUtilsV3";
@@ -15,7 +15,9 @@ import {
 import {
   ConfigUtils,
   FOLDERS,
-  IntermediateDendronConfig,
+  DendronConfig,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
 import { PluginTestSeedUtils } from "../utils/TestSeedUtils";
 
@@ -66,9 +68,11 @@ suite("GIVEN out of date seed check", function () {
     });
 
     test("THEN seed config is correctly updated", async () => {
-      const wsRoot = ExtensionProvider.getDWorkspace().wsRoot;
-      const conf = DConfig.getRaw(wsRoot) as IntermediateDendronConfig;
-      const seed = ConfigUtils.getVaults(conf).find(
+      const { wsRoot } = ExtensionProvider.getDWorkspace();
+      const config = (
+        await ConfigService.instance().readRaw(URI.file(wsRoot))
+      )._unsafeUnwrap() as DendronConfig;
+      const seed = ConfigUtils.getVaults(config).find(
         (vault) => vault.seed === seedKey
       );
       expect(seed?.fsPath).toEqual(FOLDERS.NOTES);

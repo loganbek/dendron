@@ -1,11 +1,12 @@
 import {
   ConfigUtils,
   DENDRON_VSCODE_CONFIG_KEYS,
+  DEngine,
   DEngineClient,
   Disposable,
   DVault,
   InstallStatus,
-  IntermediateDendronConfig,
+  DendronConfig,
   isNotUndefined,
   NoteChangeEntry,
   NoteUtils,
@@ -15,6 +16,8 @@ import {
   WorkspaceOpts,
   WorkspaceSettings,
   WorkspaceType,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
 import {
   assignJSONWithComment,
@@ -34,9 +37,10 @@ import {
 } from "@dendronhq/common-test-utils";
 import {
   DendronEngineClient,
-  DendronEngineV2,
   Git,
   HistoryService,
+  NodeJSFileStore,
+  WorkspaceService,
   WorkspaceUtils,
 } from "@dendronhq/engine-server";
 import {
@@ -48,6 +52,7 @@ import fs from "fs-extra";
 import _ from "lodash";
 import { after, afterEach, before, beforeEach, describe } from "mocha";
 import os from "os";
+import { performance } from "perf_hooks";
 import sinon from "sinon";
 import {
   CancellationToken,
@@ -143,14 +148,22 @@ export class EditorUtils {
   }
 }
 
+/**
+ * @deprecated
+ */
 export const getConfig = (opts: { wsRoot: string }) => {
   const configPath = DConfig.configPath(opts.wsRoot);
-  const config = readYAML(configPath) as IntermediateDendronConfig;
+  const config = readYAML(configPath) as DendronConfig;
   return config;
 };
 
+/**
+ * @deprecated: this will be removed with the deprecation of DConfig.
+ * Consider writing tests with {@link describeMultiWS} or {@link describeSingleWS}
+ * and use `modConfigCb` to modify configs
+ */
 export const withConfig = (
-  func: (config: IntermediateDendronConfig) => IntermediateDendronConfig,
+  func: (config: DendronConfig) => DendronConfig,
   opts: { wsRoot: string }
 ) => {
   const config = getConfig(opts);
@@ -160,8 +173,11 @@ export const withConfig = (
   return newConfig;
 };
 
+/**
+ * @deprecated
+ */
 export const writeConfig = (opts: {
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
   wsRoot: string;
 }) => {
   const configPath = DConfig.configPath(opts.wsRoot);
@@ -194,6 +210,11 @@ export async function setupLegacyWorkspace(
   }
   await fs.ensureDir(wsRoot);
   if (copts.workspaceType === WorkspaceType.CODE) stubWorkspaceFile(wsRoot);
+  ConfigService._singleton = undefined;
+  ConfigService.instance({
+    homeDir: URI.file(os.homedir()),
+    fileStore: new NodeJSFileStore(),
+  });
   setupCodeConfiguration(opts);
 
   await copts.preSetupHook({
@@ -215,11 +236,15 @@ export async function setupLegacyWorkspace(
   stubWorkspaceFolders(wsRoot, vaults);
 
   // update config
-  let config = DConfig.getOrCreate(wsRoot);
-  if (isNotUndefined(copts.modConfigCb)) {
-    config = TestConfigUtils.withConfig(copts.modConfigCb, { wsRoot });
+  const configResult = await WorkspaceService.getOrCreateConfig(wsRoot);
+  if (configResult.isErr()) {
+    throw configResult.error;
   }
-  await DConfig.writeConfig({ wsRoot, config });
+  let config = configResult.value;
+  if (isNotUndefined(copts.modConfigCb)) {
+    config = await TestConfigUtils.withConfig(copts.modConfigCb, { wsRoot });
+  }
+  await ConfigService.instance().writeConfig(URI.file(wsRoot), config);
 
   await copts.postSetupHook({
     wsRoot,
@@ -257,7 +282,13 @@ export async function setupLegacyWorkspaceMulti(
 
   const { wsRoot, vaults } = await EngineTestUtilsV4.setupWS();
   new StateService(opts.ctx!); // eslint-disable-line no-new
+  ConfigService._singleton = undefined;
+  ConfigService.instance({
+    homeDir: URI.file(os.homedir()),
+    fileStore: new NodeJSFileStore(),
+  });
   setupCodeConfiguration(opts);
+
   if (copts.workspaceType === WorkspaceType.CODE) {
     stubWorkspace({ wsRoot, vaults });
 
@@ -291,12 +322,22 @@ export async function setupLegacyWorkspaceMulti(
   }
 
   // update config
-  let config = DConfig.getOrCreate(wsRoot);
+  let config: DendronConfig;
+  const configReadResult = await ConfigService.instance().readConfig(
+    URI.file(wsRoot)
+  );
+  if (configReadResult.isErr()) {
+    config = (
+      await ConfigService.instance().createConfig(URI.file(wsRoot))
+    )._unsafeUnwrap();
+  } else {
+    config = configReadResult.value;
+  }
   if (isNotUndefined(copts.modConfigCb)) {
-    config = TestConfigUtils.withConfig(copts.modConfigCb, { wsRoot });
+    config = await TestConfigUtils.withConfig(copts.modConfigCb, { wsRoot });
   }
   ConfigUtils.setVaults(config, vaults);
-  await DConfig.writeConfig({ wsRoot, config });
+  await ConfigService.instance().writeConfig(URI.file(wsRoot), config);
   await postSetupHook({
     wsRoot,
     vaults,
@@ -428,7 +469,7 @@ export function stubSetupWorkspace({ wsRoot }: { wsRoot: string }) {
 class FakeEngine {}
 
 type EngineOverride = {
-  [P in keyof DendronEngineV2]: (opts: WorkspaceOpts) => DendronEngineV2[P];
+  [P in keyof DEngine]: (opts: WorkspaceOpts) => DEngine[P];
 };
 
 export const createEngineFactory = (
@@ -438,7 +479,7 @@ export const createEngineFactory = (
     opts: WorkspaceOpts
   ): DEngineClient => {
     const engine = new FakeEngine() as DEngineClient;
-    _.map(overrides || {}, (method, key: keyof DendronEngineV2) => {
+    _.map(overrides || {}, (method, key: keyof DEngine) => {
       // @ts-ignore
       engine[key] = method(opts);
     });
@@ -482,6 +523,11 @@ export const stubVaultInput = (opts: {
   };
   return;
 };
+
+export function runTestCaseButSkipForWindows() {
+  const runTest = os.platform() === "win32" ? test.skip : test;
+  return runTest;
+}
 
 export function runTestButSkipForWindows() {
   const runTest = os.platform() === "win32" ? describe.skip : describe;
@@ -622,6 +668,8 @@ export function describeSingleWS(
      * See [[Breakpoints|dendron://dendron.docs/pkg.plugin-core.qa.debug#breakpoints]] for more details
      */
     timeout?: number;
+    // added to calculate activation time for performance testing
+    perflogs?: { [key: string]: number };
   },
   fn: (ctx: ExtensionContext) => void
 ) {
@@ -633,12 +681,15 @@ export function describeSingleWS(
     before(async () => {
       setupWorkspaceStubs({ ...opts, ctx });
       await setupLegacyWorkspace(opts);
+      const start = performance.now();
       await _activate(ctx, {
         skipLanguageFeatures: true,
         skipInteractiveElements: true,
         skipMigrations: true,
         skipTreeView: true,
       });
+      const end = performance.now();
+      if (opts.perflogs) opts.perflogs.activationTime = end - start;
     });
 
     const result = fn(ctx);

@@ -1,6 +1,8 @@
 import {
   assertUnreachable,
   CLIEvents,
+  ConfigService,
+  DendronConfig,
   DendronError,
   DVault,
   ERROR_STATUS,
@@ -8,13 +10,9 @@ import {
   NoteUtils,
   stringifyError,
   TimeUtils,
+  URI,
 } from "@dendronhq/common-all";
-import {
-  DConfig,
-  readYAML,
-  SegmentClient,
-  TelemetryStatus,
-} from "@dendronhq/common-server";
+import { SegmentClient, TelemetryStatus } from "@dendronhq/common-server";
 import {
   MigrationChangeSetStatus,
   MigrationService,
@@ -29,7 +27,7 @@ import yargs from "yargs";
 import { CLIAnalyticsUtils, setupEngine } from "..";
 import {
   BuildUtils,
-  ExtensionTarget,
+  ExtensionType,
   LernaUtils,
   PublishEndpoint,
   SemverVersion,
@@ -69,7 +67,8 @@ type CommandOutput = Partial<{ error: DendronError; data: any }>;
 type BuildCmdOpts = {
   publishEndpoint: PublishEndpoint;
   fast?: boolean;
-  extensionTarget: ExtensionTarget;
+  extensionType: ExtensionType;
+  extensionTarget?: string;
   skipSentry?: boolean;
 } & BumpVersionOpts &
   PrepPluginOpts;
@@ -87,7 +86,7 @@ type BumpVersionOpts = {
 } & CommandCLIOpts;
 
 type PrepPluginOpts = {
-  extensionTarget: ExtensionTarget;
+  extensionType: ExtensionType;
 } & CommandCLIOpts;
 
 type RunMigrationOpts = {
@@ -144,9 +143,14 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
       describe: "where to publish",
       choices: Object.values(PublishEndpoint),
     });
+    args.option("extensionType", {
+      describe:
+        "extension name to publish in the marketplace (Dendron / Nightly)",
+      choices: Object.values(ExtensionType),
+    });
     args.option("extensionTarget", {
-      describe: "extension name to publish in the marketplace",
-      choices: Object.values(ExtensionTarget),
+      describe:
+        "extension target to pass to vsce to specify platform and architecture",
     });
     args.option("fast", {
       describe: "skip some checks",
@@ -210,7 +214,7 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
             payload.numNotes
         );
         this.print(`creating ${numNotes} ${key} notes...`);
-        const vault = svc.vaults[_.random(0, vaultTotal - 1)];
+        const vault = (await svc.vaults)[_.random(0, vaultTotal - 1)];
         const notes: NoteProps[] = await Promise.all(
           _.times(numNotes, async (i) => {
             return NoteUtils.create({ fname: `${key}.${i}`, vault });
@@ -347,7 +351,7 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
             };
           }
 
-          await BuildUtils.prepPluginPkg(opts.extensionTarget);
+          await BuildUtils.prepPluginPkg(opts.extensionType);
           return { error: null };
         }
         case DevCommands.PACKAGE_PLUGIN: {
@@ -449,8 +453,8 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
     this.print("sync assets...");
     await this.syncAssets(opts);
 
-    this.print("prep repo...");
-    await BuildUtils.prepPluginPkg(opts.extensionTarget);
+    this.print(`prep repo... extensionType: ${opts.extensionType}`);
+    await BuildUtils.prepPluginPkg(opts.extensionType);
 
     if (!shouldPublishLocal) {
       this.print(
@@ -458,8 +462,11 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
       );
       await TimeUtils.sleep(2 * 60 * 1000);
     } else {
-      this.print("sleeping 6s for local npm registry to have packages ready");
-      await TimeUtils.sleep(6 * 1000);
+      const localSleepSeconds = 15;
+      this.print(
+        `sleeping ${localSleepSeconds}s for local npm registry to have packages ready`
+      );
+      await TimeUtils.sleep(localSleepSeconds * 1000);
     }
 
     this.print("install deps...");
@@ -581,8 +588,8 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
   }
 
   validatePrepPluginArgs(opts: CommandOpts): opts is PrepPluginOpts {
-    if (opts.extensionTarget) {
-      return Object.values(ExtensionTarget).includes(opts.extensionTarget);
+    if (opts.extensionType) {
+      return Object.values(ExtensionType).includes(opts.extensionType);
     }
     return true;
   }
@@ -657,8 +664,17 @@ export class DevCLICommand extends CLICommand<CommandOpts, CommandOutput> {
     // run it
     const currentVersion = migrationsToRun[0].version;
     const wsService = new WorkspaceService({ wsRoot: opts.wsRoot! });
-    const configPath = DConfig.configPath(opts.wsRoot!);
-    const dendronConfig = readYAML(configPath);
+    const configReadRawResult = await ConfigService.instance().readRaw(
+      URI.file(opts.wsRoot!)
+    );
+    if (configReadRawResult.isErr()) {
+      throw DendronError.createFromStatus({
+        status: ERROR_STATUS.INVALID_CONFIG,
+        message: "no dendron config found",
+        innerError: configReadRawResult.error,
+      });
+    }
+    const dendronConfig = configReadRawResult.value as DendronConfig;
     const wsConfig = wsService.getCodeWorkspaceSettingsSync();
     if (_.isUndefined(wsConfig)) {
       throw DendronError.createFromStatus({

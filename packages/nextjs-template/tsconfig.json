@@ -18,7 +18,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "typeRoots": ["./types"]
+    "typeRoots": [
+      "./types"
+    ]
   },
   "include": [
     "next-env.d.ts",

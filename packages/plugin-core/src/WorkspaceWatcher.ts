@@ -2,6 +2,7 @@ import {
   ConfigUtils,
   ContextualUIEvents,
   DNodeUtils,
+  DVault,
   ErrorUtils,
   NoteUtils,
   SchemaUtils,
@@ -207,7 +208,9 @@ export class WorkspaceWatcher {
       Logger.debug({ ...ctx, state: "enter" });
       this._quickDebouncedOnDidChangeTextDocument.cancel();
       const uri = event.document.uri;
-      const { wsRoot, vaults } = this._extension.getDWorkspace();
+      const ws = this._extension.getDWorkspace();
+      const { wsRoot } = ws;
+      const vaults = await ws.vaults;
       if (
         !WorkspaceUtils.isPathInWorkspace({
           wsRoot,
@@ -254,7 +257,7 @@ export class WorkspaceWatcher {
    * @param event
    * @returns
    */
-  async onWillSaveTextDocument(event: TextDocumentWillSaveEvent) {
+  onWillSaveTextDocument(event: TextDocumentWillSaveEvent) {
     try {
       const ctx = "WorkspaceWatcher:onWillSaveTextDocument";
       const uri = event.document.uri;
@@ -264,28 +267,39 @@ export class WorkspaceWatcher {
         reason: TextDocumentSaveReason[event.reason],
         msg: "enter",
       });
-      const { wsRoot, vaults } = this._extension.getDWorkspace();
-      if (
-        !WorkspaceUtils.isPathInWorkspace({ fpath: uri.fsPath, wsRoot, vaults })
-      ) {
-        Logger.debug({
-          ctx,
-          uri: uri.fsPath,
-          msg: "not in workspace, ignoring.",
-        });
-        return { changes: [] };
-      }
-
-      if (uri.fsPath.endsWith(".md")) {
-        return this.onWillSaveNote(event);
-      } else {
-        Logger.debug({
-          ctx,
-          uri: uri.fsPath,
-          msg: "File type is not registered for updates. ignoring.",
-        });
-        return { changes: [] };
-      }
+      const ws = this._extension.getDWorkspace();
+      const { wsRoot } = ws;
+      let changes: TextEdit[] = [];
+      // eslint-disable-next-line no-async-promise-executor
+      const promise = new Promise(async (resolve) => {
+        const vaults = await ws.vaults;
+        if (
+          !WorkspaceUtils.isPathInWorkspace({
+            fpath: uri.fsPath,
+            wsRoot,
+            vaults,
+          })
+        ) {
+          Logger.debug({
+            ctx,
+            uri: uri.fsPath,
+            msg: "not in workspace, ignoring.",
+          });
+        }
+        if (uri.fsPath.endsWith(".md")) {
+          changes = this.onWillSaveNote(event).changes;
+        } else {
+          Logger.debug({
+            ctx,
+            uri: uri.fsPath,
+            msg: "File type is not registered for updates. ignoring.",
+          });
+          return { changes: [] };
+        }
+        return resolve(changes);
+      });
+      event.waitUntil(promise);
+      return { changes };
     } catch (error) {
       Sentry.captureException(error);
       throw error;
@@ -296,60 +310,55 @@ export class WorkspaceWatcher {
    * When saving a note, do some book keeping
    * - update the `updated` time in frontmatter
    * - update the note metadata in the engine
+   *
+   * this method needs to be sync since event.WaitUntil can be called
+   * in an asynchronous manner.
    * @param event
    * @returns
    */
-  private async onWillSaveNote(event: TextDocumentWillSaveEvent) {
+  private onWillSaveNote(event: TextDocumentWillSaveEvent) {
     const ctx = "WorkspaceWatcher:onWillSaveNote";
     const uri = event.document.uri;
     const engine = this._extension.getEngine();
     const fname = path.basename(uri.fsPath, ".md");
     const now = Time.now().toMillis();
-
-    const note = (
-      await engine.findNotes({
-        fname,
-        vault: this._extension.wsUtils.getVaultFromUri(uri),
-      })
-    )[0];
-
-    // If we can't find the note, don't do anything
-    if (!note) {
-      // Log at info level and not error level for now to reduce Sentry noise
-      Logger.info({
-        ctx,
-        msg: `Note with fname ${fname} not found in engine! Skipping updated field FM modification.`,
-      });
-      return;
-    }
-
-    // Return undefined if document is missing frontmatter
-    if (!TextDocumentService.containsFrontmatter(event.document)) {
-      return;
-    }
-
-    const content = event.document.getText();
-    const match = NoteUtils.RE_FM_UPDATED.exec(content);
     let changes: TextEdit[] = [];
+    // eslint-disable-next-line  no-async-promise-executor
+    const promise = new Promise(async (resolve) => {
+      const note = (
+        await engine.findNotes({
+          fname,
+          vault: await this._extension.wsUtils.getVaultFromUri(uri),
+        })
+      )[0];
+      // If we can't find the note, don't do anything
+      if (!note) {
+        // Log at info level and not error level for now to reduce Sentry noise
+        Logger.info({
+          ctx,
+          msg: `Note with fname ${fname} not found in engine! Skipping updated field FM modification.`,
+        });
+        return;
+      }
 
-    // update the `updated` time in frontmatter if it exists and content has changed
-    if (match && WorkspaceUtils.noteContentChanged({ content, note })) {
-      Logger.info({ ctx, match, msg: "update activeText editor" });
-      const startPos = event.document.positionAt(match.index);
-      const endPos = event.document.positionAt(match.index + match[0].length);
-      changes = [
-        TextEdit.replace(new Range(startPos, endPos), `updated: ${now}`),
-      ];
-
-      // update the note in engine
-      // eslint-disable-next-line  no-async-promise-executor
-      const p = new Promise(async (resolve) => {
-        note.updated = now;
-        await engine.writeNote(note, { metaOnly: true });
-        return resolve(changes);
-      });
-      event.waitUntil(p);
-    }
+      // Return undefined if document is missing frontmatter
+      if (!TextDocumentService.containsFrontmatter(event.document)) {
+        return;
+      }
+      const content = event.document.getText();
+      const match = NoteUtils.RE_FM_UPDATED.exec(content);
+      // update the `updated` time in frontmatter if it exists and content has changed
+      if (match && WorkspaceUtils.noteContentChanged({ content, note })) {
+        Logger.info({ ctx, match, msg: "update activeText editor" });
+        const startPos = event.document.positionAt(match.index);
+        const endPos = event.document.positionAt(match.index + match[0].length);
+        changes = [
+          TextEdit.replace(new Range(startPos, endPos), `updated: ${now}`),
+        ];
+      }
+      return resolve(changes);
+    });
+    event.waitUntil(promise);
     return { changes };
   }
 
@@ -396,7 +405,9 @@ export class WorkspaceWatcher {
     }
     try {
       const files = args.files[0];
-      const { vaults, wsRoot } = this._extension.getDWorkspace();
+      const { wsRoot } = this._extension.getDWorkspace();
+
+      const vaults = this._extension.getDWorkspace().vaults;
       const { oldUri, newUri } = files;
 
       // No-op if we are not dealing with a Dendron note.
@@ -404,34 +415,41 @@ export class WorkspaceWatcher {
         return;
       }
 
-      const oldVault = VaultUtils.getVaultByFilePath({
-        vaults,
-        wsRoot,
-        fsPath: oldUri.fsPath,
-      });
-      const oldFname = DNodeUtils.fname(oldUri.fsPath);
+      let oldVault: DVault;
+      let oldFname: string;
+      let newVault: DVault;
+      let newFname: string;
+      const promise = vaults.then(async (vaults) => {
+        oldVault = VaultUtils.getVaultByFilePath({
+          vaults,
+          wsRoot,
+          fsPath: oldUri.fsPath,
+        });
+        oldFname = DNodeUtils.fname(oldUri.fsPath);
 
-      const newVault = VaultUtils.getVaultByFilePath({
-        vaults,
-        wsRoot,
-        fsPath: newUri.fsPath,
+        newVault = VaultUtils.getVaultByFilePath({
+          vaults,
+          wsRoot,
+          fsPath: newUri.fsPath,
+        });
+        newFname = DNodeUtils.fname(newUri.fsPath);
+        const opts = {
+          oldLoc: {
+            fname: oldFname,
+            vaultName: VaultUtils.getName(oldVault),
+          },
+          newLoc: {
+            fname: newFname,
+            vaultName: VaultUtils.getName(newVault),
+          },
+          metaOnly: true,
+        };
+        AnalyticsUtils.track(ContextualUIEvents.ContextualUIRename);
+        const engine = this._extension.getEngine();
+        await engine.renameNote(opts);
       });
-      const newFname = DNodeUtils.fname(newUri.fsPath);
-      const opts = {
-        oldLoc: {
-          fname: oldFname,
-          vaultName: VaultUtils.getName(oldVault),
-        },
-        newLoc: {
-          fname: newFname,
-          vaultName: VaultUtils.getName(newVault),
-        },
-        metaOnly: true,
-      };
-      AnalyticsUtils.track(ContextualUIEvents.ContextualUIRename);
-      const engine = this._extension.getEngine();
-      const updateNoteReferences = engine.renameNote(opts);
-      args.waitUntil(updateNoteReferences);
+
+      args.waitUntil(promise);
     } catch (error: any) {
       Sentry.captureException(error);
       throw error;
@@ -452,7 +470,9 @@ export class WorkspaceWatcher {
       const { newUri } = files;
       const fname = DNodeUtils.fname(newUri.fsPath);
       const engine = this._extension.getEngine();
-      const { vaults, wsRoot } = this._extension.getDWorkspace();
+      const ws = this._extension.getDWorkspace();
+      const { wsRoot } = ws;
+      const vaults = await ws.vaults;
 
       // No-op if we are not dealing with a Dendron note.
       if (!NoteUtils.isNote(newUri)) {
@@ -496,7 +516,9 @@ export class WorkspaceWatcher {
       msg: "enter",
       fname: NoteUtils.uri2Fname(editor.document.uri),
     });
-    const { vaults, wsRoot } = this._extension.getDWorkspace();
+    const ws = this._extension.getDWorkspace();
+    const { wsRoot } = ws;
+    const vaults = await ws.vaults;
     const fpath = editor.document.uri.fsPath;
 
     // don't apply actions to non-dendron notes
@@ -506,7 +528,7 @@ export class WorkspaceWatcher {
     }
 
     WorkspaceWatcher.moveCursorPastFrontmatter(editor);
-    const config = this._extension.getDWorkspace().config;
+    const config = await ws.config;
     if (ConfigUtils.getWorkspace(config).enableAutoFoldFrontmatter) {
       await this.foldFrontmatter();
     }

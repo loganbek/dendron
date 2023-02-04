@@ -1,4 +1,4 @@
-import { ConfigUtils, IntermediateDendronConfig } from "@dendronhq/common-all";
+import { ConfigUtils, DendronConfig } from "@dendronhq/common-all";
 import { NOTE_PRESETS_V4 } from "@dendronhq/common-test-utils";
 import { ENGINE_HOOKS } from "@dendronhq/engine-test-utils";
 import _ from "lodash";
@@ -12,7 +12,7 @@ import { describeMultiWS } from "../testUtilsV3";
 
 const ROOT_URL = "https://dendron.so";
 const ASSET_PREFIX = "aprefix";
-function setupConfig(config: IntermediateDendronConfig) {
+function setupConfig(config: DendronConfig) {
   config = ConfigUtils.genDefaultConfig();
   config.publishing.siteUrl = ROOT_URL;
   return config;
@@ -38,7 +38,7 @@ suite("GIVEN CopyNoteUrlV2", function () {
       },
       () => {
         test("THEN create link with block anchor", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const vault = vaults[0];
           const fname = NOTE_PRESETS_V4.NOTE_WITH_BLOCK_ANCHOR_TARGET.fname;
           const editor = await WSUtils.openNoteByPath({ vault, fname });
@@ -69,7 +69,7 @@ suite("GIVEN CopyNoteUrlV2", function () {
       },
       () => {
         test("THEN create link with header anchor", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const vault = vaults[0];
           const fname = NOTE_PRESETS_V4.NOTE_WITH_ANCHOR_TARGET.fname;
           const editor = await WSUtils.openNoteByPath({ vault, fname });
@@ -96,7 +96,7 @@ suite("GIVEN CopyNoteUrlV2", function () {
       },
       () => {
         test("THEN create regular link", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const vault = vaults[0];
           const fname = "foo";
           await WSUtils.openNoteByPath({ vault, fname });
@@ -126,7 +126,7 @@ suite("GIVEN CopyNoteUrlV2", function () {
       },
       () => {
         test("THEN create link with prefix", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const vault = vaults[0];
           const fname = "foo";
           await WSUtils.openNoteByPath({ vault, fname });

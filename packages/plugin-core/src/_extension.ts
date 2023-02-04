@@ -1,6 +1,7 @@
 import "reflect-metadata"; // This needs to be the topmost import for tsyringe to work
 
 import {
+  ConfigService,
   CONSTANTS,
   DWorkspaceV2,
   getStage,
@@ -11,6 +12,7 @@ import {
   GRAPH_THEME_TEST,
   InstallStatus,
   isDisposable,
+  URI,
   VSCodeEvents,
   WorkspaceEvents,
 } from "@dendronhq/common-all";
@@ -23,15 +25,19 @@ import {
 import {
   HistoryService,
   MetadataService,
+  NodeJSFileStore,
   WorkspaceUtils,
 } from "@dendronhq/engine-server";
 import * as Sentry from "@sentry/node";
 import fs from "fs-extra";
+import _ from "lodash";
 import os from "os";
 import path from "path";
+import semver from "semver";
 import * as vscode from "vscode";
 import { ALL_COMMANDS } from "./commands";
 import { ConfigureWithUICommand } from "./commands/ConfigureWithUICommand";
+import { GotoNoteCommand } from "./commands/GotoNote";
 import { GoToSiblingCommand } from "./commands/GoToSiblingCommand";
 import { ReloadIndexCommand } from "./commands/ReloadIndex";
 import { SeedAddCommand } from "./commands/SeedAddCommand";
@@ -41,9 +47,9 @@ import {
 } from "./commands/SeedBrowseCommand";
 import { SeedRemoveCommand } from "./commands/SeedRemoveCommand";
 import { ShowNoteGraphCommand } from "./commands/ShowNoteGraph";
+import { ShowSchemaGraphCommand } from "./commands/ShowSchemaGraph";
 import { TogglePreviewCommand } from "./commands/TogglePreview";
 import { TogglePreviewLockCommand } from "./commands/TogglePreviewLock";
-import { ShowSchemaGraphCommand } from "./commands/ShowSchemaGraph";
 import { ConfigureUIPanelFactory } from "./components/views/ConfigureUIPanelFactory";
 import { NoteGraphPanelFactory } from "./components/views/NoteGraphViewFactory";
 import { PreviewPanelFactory } from "./components/views/PreviewViewFactory";
@@ -58,15 +64,16 @@ import setupRecentWorkspacesTreeView from "./features/RecentWorkspacesTreeview";
 import ReferenceHoverProvider from "./features/ReferenceHoverProvider";
 import ReferenceProvider from "./features/ReferenceProvider";
 import RenameProvider from "./features/RenameProvider";
-import { KeybindingUtils } from "./KeybindingUtils";
 import { setupLocalExtContainer } from "./injection-providers/setupLocalExtContainer";
+import { KeybindingUtils } from "./KeybindingUtils";
 import { Logger } from "./logger";
 import { StateService } from "./services/stateService";
 import { Extensions } from "./settings";
+import { CreateScratchNoteKeybindingTip } from "./showcase/CreateScratchNoteKeybindingTip";
 import { FeatureShowcaseToaster } from "./showcase/FeatureShowcaseToaster";
+import { SurveyUtils } from "./survey";
 import { AnalyticsUtils, sentryReportingCallback } from "./utils/analytics";
 import { ExtensionUtils } from "./utils/ExtensionUtils";
-import { StartupPrompts } from "./utils/StartupPrompts";
 import { StartupUtils } from "./utils/StartupUtils";
 import { VSCodeUtils } from "./vsCodeUtils";
 import { showWelcome } from "./WelcomeUtils";
@@ -74,9 +81,6 @@ import { DendronExtension, getDWorkspace, getExtension } from "./workspace";
 import { TutorialInitializer } from "./workspace/tutorialInitializer";
 import { WorkspaceActivator } from "./workspace/workspaceActivator";
 import { WSUtils } from "./WSUtils";
-import { CreateScratchNoteKeybindingTip } from "./showcase/CreateScratchNoteKeybindingTip";
-import semver from "semver";
-import _ from "lodash";
 
 const MARKDOWN_WORD_PATTERN = new RegExp("([\\w\\.]+)");
 // === Main
@@ -150,6 +154,12 @@ export async function _activate(
     extensionUri: extensionUri.fsPath,
     workspaceFile: workspaceFile?.fsPath,
     workspaceFolders: workspaceFolders?.map((fd) => fd.uri.fsPath),
+  });
+
+  // Config service instantiation as early as possible
+  ConfigService.instance({
+    homeDir: URI.file(os.homedir()),
+    fileStore: new NodeJSFileStore(),
   });
 
   // At this point, the segment client has not been created yet.
@@ -323,9 +333,14 @@ export async function _activate(
       // setup extension container
       setupLocalExtContainer({
         wsRoot: maybeWsRoot,
-        vaults: wsImpl.vaults,
+        vaults: await wsImpl.vaults,
         engine: resp.data.engine,
+        config: await resp.data.workspace.config,
+        context,
       });
+
+      // preview commands requires tsyringe dependencies to be registered beforehand
+      _setupPreviewCommands(context);
       // initialize Segment client
       AnalyticsUtils.setupSegmentWithCacheFlush({ context, ws: wsImpl });
 
@@ -365,7 +380,7 @@ export async function _activate(
         ctx: ctx + ":postSetupWorkspace",
         platform,
         extensions,
-        vaults: wsImpl.vaults,
+        vaults: await wsImpl.vaults,
       });
 
       // --- Start Initializating the Engine
@@ -410,6 +425,24 @@ export async function _activate(
           }
         }, ONE_MINUTE_IN_MS);
       }
+      if (ExtensionUtils.isEnterprise(context)) {
+        let resp: boolean | undefined | string = true;
+        while (!ExtensionUtils.hasValidLicense() && resp !== undefined) {
+          // eslint-disable-next-line no-await-in-loop
+          resp = await SurveyUtils.showEnterpriseLicenseSurvey();
+        }
+        if (resp === undefined) {
+          vscode.window.showInformationMessage(
+            "Please reload to enter your license key",
+            {
+              modal: true,
+              detail:
+                "Dendron will be inactive until you enter a license key. You can reload your vscode instance to be prompted again",
+            }
+          );
+          return false;
+        }
+      }
     } else {
       // ws not active
       Logger.info({ ctx, msg: "dendron not active" });
@@ -444,12 +477,10 @@ export async function _activate(
         action: "activate",
       });
       // If automaticallyShowPreview = true, display preview panel on start up
+      const config = await ws.workspaceService?.config;
       const note = await WSUtils.getActiveNote();
-      if (
-        note &&
-        ws.workspaceService?.config.preview?.automaticallyShowPreview
-      ) {
-        await PreviewPanelFactory.create(getExtension()).show(note);
+      if (note && config && config.preview?.automaticallyShowPreview) {
+        await PreviewPanelFactory.create().show(note);
       }
       StartupUtils.showUninstallMarkdownLinksExtensionMessage();
       return true;
@@ -582,13 +613,14 @@ async function showWelcomeOrWhatsNew({
       break;
   }
 
+  // NOTE: these two prompts are disabled for now. uncomment to renable when needed.
   // Show lapsed users (users who have installed Dendron but haven't initialied
   // a workspace) a reminder prompt to re-engage them.
-  StartupPrompts.showLapsedUserMessageIfNecessary({ assetUri });
+  // StartupPrompts.showLapsedUserMessageIfNecessary({ assetUri });
 
   // Show inactive users (users who were active on first week but have not used lookup in 2 weeks)
   // a reminder prompt to re-engage them.
-  StartupUtils.showInactiveUserMessageIfNecessary();
+  // StartupUtils.showInactiveUserMessageIfNecessary();
 }
 
 async function _setupCommands({
@@ -647,36 +679,6 @@ async function _setupCommands({
       );
     }
 
-    const preview = PreviewPanelFactory.create(ext);
-
-    if (!existingCommands.includes(DENDRON_COMMANDS.TOGGLE_PREVIEW.key)) {
-      context.subscriptions.push(
-        vscode.commands.registerCommand(
-          DENDRON_COMMANDS.TOGGLE_PREVIEW.key,
-          sentryReportingCallback(async (args) => {
-            if (args === undefined) {
-              args = {};
-            }
-            await new TogglePreviewCommand(preview).run(args);
-          })
-        )
-      );
-    }
-
-    if (!existingCommands.includes(DENDRON_COMMANDS.TOGGLE_PREVIEW_LOCK.key)) {
-      context.subscriptions.push(
-        vscode.commands.registerCommand(
-          DENDRON_COMMANDS.TOGGLE_PREVIEW_LOCK.key,
-          sentryReportingCallback(async (args) => {
-            if (args === undefined) {
-              args = {};
-            }
-            await new TogglePreviewLockCommand(preview).run(args);
-          })
-        )
-      );
-    }
-
     if (!existingCommands.includes(DENDRON_COMMANDS.SHOW_SCHEMA_GRAPH.key)) {
       context.subscriptions.push(
         vscode.commands.registerCommand(
@@ -715,6 +717,21 @@ async function _setupCommands({
         )
       );
     }
+    if (!existingCommands.includes(DENDRON_COMMANDS.TREEVIEW_GOTO_NOTE.key)) {
+      context.subscriptions.push(
+        vscode.commands.registerCommand(
+          DENDRON_COMMANDS.TREEVIEW_GOTO_NOTE.key,
+          sentryReportingCallback(async (id: string) => {
+            const resp = await ext.getEngine().getNoteMeta(id);
+            const { data } = resp;
+            await new GotoNoteCommand(ext).run({
+              qs: data?.fname,
+              vault: data?.vault,
+            });
+          })
+        )
+      );
+    }
   }
 
   // NOTE: seed commands currently DO NOT take extension as a first argument
@@ -743,6 +760,39 @@ async function _setupCommands({
           const cmd = new SeedBrowseCommand(panel);
 
           return cmd.run();
+        })
+      )
+    );
+  }
+}
+
+async function _setupPreviewCommands(context: vscode.ExtensionContext) {
+  const existingCommands = await vscode.commands.getCommands();
+  const preview = PreviewPanelFactory.create();
+
+  if (!existingCommands.includes(DENDRON_COMMANDS.TOGGLE_PREVIEW.key)) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        DENDRON_COMMANDS.TOGGLE_PREVIEW.key,
+        sentryReportingCallback(async (args) => {
+          if (args === undefined) {
+            args = {};
+          }
+          await new TogglePreviewCommand(preview).run(args);
+        })
+      )
+    );
+  }
+
+  if (!existingCommands.includes(DENDRON_COMMANDS.TOGGLE_PREVIEW_LOCK.key)) {
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        DENDRON_COMMANDS.TOGGLE_PREVIEW_LOCK.key,
+        sentryReportingCallback(async (args) => {
+          if (args === undefined) {
+            args = {};
+          }
+          await new TogglePreviewLockCommand(preview).run(args);
         })
       )
     );

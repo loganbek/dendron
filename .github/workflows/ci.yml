@@ -4,18 +4,21 @@ on:
   push:
     branches:
       - master
-      - dev
-      - integ-publish
       - release/*
-      - prerelease/*
-      - kevin-*/*
   pull_request:
     branches:
       - "*"
       - "*/*"
+  workflow_dispatch:
+
+# If multiple pushes occur in close succession, cancel all CI jobs except the
+# last one to save resources
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  BINARY_CACHE_INDEX: 23 # Rev this if we need a new node cache
+  BINARY_CACHE_INDEX: 24 # Rev this if we need a new node cache
 
 jobs:
   test:
@@ -30,7 +33,6 @@ jobs:
           - ubuntu-latest
           - windows-latest
         node-version:
-          - 14.x
           - 16.x
         suite:
           - cli
@@ -62,9 +64,9 @@ jobs:
           yarn --version
 
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v3
         with:
           node-version: "${{ matrix.node-version }}"
           cache: "yarn"
@@ -77,7 +79,7 @@ jobs:
           git config --global user.email ci@dendron.so
 
       - name: Restore typescript lib cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         id: ts-cache
         with:
           path: |
@@ -92,6 +94,10 @@ jobs:
 
       - name: Build
         run: yarn bootstrap:buildCI
+        shell: bash
+
+      - name: Typecheck
+        run: yarn lerna:typecheck
         shell: bash
 
       - name: Start Xvfb
@@ -110,16 +116,16 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v3
         with:
           node-version: "16.x"
           cache: "yarn"
           cache-dependency-path: yarn.lock
 
       - name: Restore typescript lib cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         id: ts-cache
         with:
           path: |
@@ -145,22 +151,24 @@ jobs:
         run: yarn ci:test:plugin-web
 
   test-playwright:
+    environment: plugin-development
+
     timeout-minutes: 15
 
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v3
         with:
           node-version: "16.x"
           cache: "yarn"
           cache-dependency-path: yarn.lock
 
       - name: Restore typescript lib cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         id: ts-cache
         with:
           path: |
@@ -191,10 +199,16 @@ jobs:
         run: npx playwright install --with-deps
 
       - name: Run Playwright tests
-        run: yarn ci:test:template
+        env:
+          AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+          AIRTABLE_BASE_ID: ${{ secrets.AIRTABLE_BASE_ID }}
+          GITHUB_SHA: $GITHUB_SHA
+          GITHUB_REF: $GITHUB_REF
+        run: yarn ci:test:template --reporter=html
 
       - name: Upload Playwright test results
         uses: actions/upload-artifact@v3
+        if: always()
         with:
-          name: test-artifact
-          path: ./packages/nextjs-template/test-results/
+          name: playwright-report
+          path: ./packages/nextjs-template/playwright-report/

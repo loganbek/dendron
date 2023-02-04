@@ -1,13 +1,12 @@
 import {
   APIUtils,
-  // CONSTANTS,
+  CONSTANTS,
   DendronEditorViewKey,
   // DendronError,
   DendronTreeViewKey,
   DUtils,
   getStage,
   getWebTreeViewEntry,
-  ThemeType,
 } from "@dendronhq/common-all";
 import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
@@ -123,16 +122,21 @@ export class WebViewUtils {
     const themes = ["light", "dark"];
     const themeMap: { [key: string]: string } = {};
 
-    // const customThemePath = Utils.joinPath(
-    //   this.wsRoot,
-    //   CONSTANTS.CUSTOM_THEME_CSS
-    // );
-    // TODO: Add back functionality
-    // if (await fs.pathExists(customThemePath)) {
-    //   themeMap["custom"] = panel.webview
-    //     .asWebviewUri(vscode.Uri.file(customThemePath))
-    //     .toString();
-    // }
+    const customThemePath = Utils.joinPath(
+      this.wsRoot,
+      CONSTANTS.CUSTOM_THEME_CSS
+    );
+
+    try {
+      // Referred from: https://github.com/microsoft/vscode-extension-samples/blob/0b3a31bf2bdd388ac4fdc0ccea2fb1315abfe3e3/fsconsumer-sample/src/extension.ts#L14
+      if (await vscode.workspace.fs.stat(customThemePath)) {
+        themeMap["custom"] = panel.webview
+          .asWebviewUri(customThemePath)
+          .toString();
+      }
+    } catch {
+      // TODO: add logger
+    }
 
     themes.map((th) => {
       themeMap[th] = panel.webview
@@ -141,14 +145,6 @@ export class WebViewUtils {
         )
         .toString();
     });
-
-    const vscodeColorTheme = vscode.window.activeColorTheme.kind;
-    const defaultInitialTheme =
-      vscodeColorTheme === vscode.ColorThemeKind.Dark ||
-      vscodeColorTheme === vscode.ColorThemeKind.HighContrast
-        ? ThemeType.DARK
-        : ThemeType.LIGHT;
-
     const out = this.genVSCodeHTMLIndex({
       jsSrc: panel.webview.asWebviewUri(jsSrc).toString(),
       cssSrc: panel.webview.asWebviewUri(cssSrc).toString(),
@@ -169,7 +165,7 @@ export class WebViewUtils {
       // and hand it out to any other functions that need to use it.
       acquireVsCodeApi: `const vscode = acquireVsCodeApi(); window.vscode = vscode;`,
       themeMap: themeMap as WebViewThemeMap,
-      initialTheme: initialTheme ?? defaultInitialTheme,
+      initialTheme,
       name,
     });
     return out;
@@ -370,7 +366,7 @@ export class WebViewUtils {
             list-style-type: disc;
           }
   
-          body {
+          body, .ant-layout {
             background-color: var(--vscode-editor-background);
           }
   

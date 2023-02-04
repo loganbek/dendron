@@ -1,36 +1,36 @@
-/* eslint-disable no-useless-constructor */
-/* eslint-disable no-empty-function */
 import _ from "lodash";
 import { BacklinkUtils } from "../BacklinkUtils";
 import { ERROR_SEVERITY, ERROR_STATUS } from "../constants";
 import { DLogger } from "../DLogger";
 import { DNodeUtils, NoteUtils } from "../dnode";
 import { DendronCompositeError, DendronError } from "../error";
-import { FuseEngine } from "../FuseEngine";
 import { INoteStore } from "../store";
 import {
   BulkGetNoteMetaResp,
   BulkGetNoteResp,
-  BulkWriteNotesResp,
   BulkWriteNotesOpts,
+  BulkWriteNotesResp,
   DeleteNoteResp,
+  DLink,
   EngineDeleteOpts,
   EngineWriteOptsV2,
   FindNotesMetaResp,
   FindNotesResp,
+  GetNoteMetaResp,
   GetNoteResp,
   NoteChangeEntry,
   NoteProps,
   NotePropsMeta,
+  QueryNotesMetaResp,
   QueryNotesOpts,
   QueryNotesResp,
   ReducedDEngine,
   RenameNoteOpts,
   RenameNoteResp,
+  RenderNoteOpts,
+  RenderNoteResp,
   RespV3,
   WriteNoteResp,
-  GetNoteMetaResp,
-  DLink,
 } from "../types";
 import { DVault } from "../types/DVault";
 import { FindNoteOpts } from "../types/FindNoteOpts";
@@ -42,13 +42,24 @@ import { VaultUtils } from "../vault";
  * DendronEngineV3Web
  */
 export abstract class EngineV3Base implements ReducedDEngine {
-  protected abstract fuseEngine: FuseEngine;
+  protected noteStore;
+  protected logger;
+  public vaults;
+  public wsRoot;
+  // TODO: Make configurable
+  API_MAX_LIMIT = 100;
 
-  constructor(
-    protected noteStore: INoteStore<string>,
-    protected logger: DLogger,
-    public vaults: DVault[]
-  ) {}
+  constructor(opts: {
+    noteStore: INoteStore<string>;
+    logger: DLogger;
+    vaults: DVault[];
+    wsRoot: string;
+  }) {
+    this.noteStore = opts.noteStore;
+    this.logger = opts.logger;
+    this.vaults = opts.vaults;
+    this.wsRoot = opts.wsRoot;
+  }
 
   /**
    * See {@link DEngine.getNote}
@@ -68,6 +79,12 @@ export abstract class EngineV3Base implements ReducedDEngine {
    * See {@link DEngine.bulkGetNotes}
    */
   async bulkGetNotes(ids: string[]): Promise<BulkGetNoteResp> {
+    if (!ids || ids.length === 0) {
+      return {
+        data: [],
+      };
+    }
+
     const bulkResponses = await this.noteStore.bulkGet(ids);
 
     const errors = bulkResponses
@@ -86,6 +103,12 @@ export abstract class EngineV3Base implements ReducedDEngine {
    * See {@link DEngine.bulkGetNotesMeta}
    */
   async bulkGetNotesMeta(ids: string[]): Promise<BulkGetNoteMetaResp> {
+    if (!ids || ids.length === 0) {
+      return {
+        data: [],
+      };
+    }
+
     const bulkResponses = await this.noteStore.bulkGetMetadata(ids);
 
     const errors = bulkResponses
@@ -269,7 +292,6 @@ export abstract class EngineV3Base implements ReducedDEngine {
 
     changes.push({ note: noteToDelete, status: "delete" });
     // Update metadata for all other changes
-    await this.fuseEngine.updateNotesIndex(changes);
     await this.updateNoteMetadataStore(changes);
 
     this.logger.info({
@@ -282,46 +304,43 @@ export abstract class EngineV3Base implements ReducedDEngine {
     };
   }
 
+  /**
+   * See {@link DEngine.queryNotes}
+   */
   async queryNotes(opts: QueryNotesOpts): Promise<QueryNotesResp> {
-    // const ctx = "Engine:queryNotes";
-    const { qs, vault, onlyDirectChildren, originalQS } = opts;
-
-    // Need to ignore this because the engine stringifies this property, so the types are incorrect.
-    // @ts-ignore
-    if (vault?.selfContained === "true" || vault?.selfContained === "false")
-      vault.selfContained = vault.selfContained === "true";
-
-    const items = await this.fuseEngine.queryNote({
-      qs,
-      onlyDirectChildren,
-      originalQS,
-    });
-
-    if (items.length === 0) {
-      return { data: [] };
+    const response = await this.noteStore.query(opts);
+    if (response.isErr()) {
+      throw new DendronError({
+        message: "Error querying for notes with opts: " + opts,
+        innerError: response.error,
+      });
     }
 
-    const notes = await Promise.all(
-      items.map((ent) => this.noteStore.get(ent.id)) // TODO: Should be using metadata instead
-    );
-
-    let modifiedNotes;
-    // let notes = items.map((ent) => this.notes[ent.id]);
-    // if (!_.isUndefined(vault)) {
-    modifiedNotes = notes
-      .filter((ent) => _.isUndefined(ent.error))
-      .map((resp) => resp.data!);
-
-    if (!_.isUndefined(vault)) {
-      modifiedNotes = modifiedNotes.filter((ent) =>
-        VaultUtils.isEqualV2(vault, ent.data!.vault)
-      );
+    let items = response.value;
+    if (items.length > this.API_MAX_LIMIT) {
+      items = items.slice(0, this.API_MAX_LIMIT);
     }
+    return items;
+  }
 
-    return {
-      // data: items,
-      data: modifiedNotes,
-    };
+  /**
+   * See {@link DEngine.queryNotesMeta}
+   */
+  async queryNotesMeta(opts: QueryNotesOpts): Promise<QueryNotesMetaResp> {
+    const response = await this.noteStore.queryMetadata(opts);
+    if (response.isErr()) {
+      throw new DendronError({
+        message: "Error querying for notes with opts: " + opts,
+        innerError: response.error,
+      });
+    }
+    let items = response.value;
+    // We should cap number of results sent over through the api,
+    // otherwise it degrades performance
+    if (items.length > this.API_MAX_LIMIT) {
+      items = items.slice(0, this.API_MAX_LIMIT);
+    }
+    return items;
   }
 
   /**
@@ -411,24 +430,18 @@ export abstract class EngineV3Base implements ReducedDEngine {
             vaults: this.vaults,
           })
         : undefined;
-      const notes = await this.noteStore.findMetaData({
+      const notes = await this.noteStore.find({
         fname: link.to.fname,
         vault: maybeVault,
       });
       if (notes.data) {
         return Promise.all(
           notes.data.map(async (note) => {
-            const prevNote = _.merge(_.cloneDeep(note), {
-              body: "",
-            });
+            const prevNote = _.cloneDeep(note);
             BacklinkUtils.addBacklinkInPlace({ note, backlink: maybeBacklink });
-            // Temp solution to get around current restrictions where NoteChangeEntry needs a NoteProp
-            const updatedNote = _.merge(note, {
-              body: "",
-            });
             return {
               prevNote,
-              note: updatedNote,
+              note,
               status: "update",
             };
           })
@@ -456,27 +469,21 @@ export abstract class EngineV3Base implements ReducedDEngine {
             vaults: this.vaults,
           })
         : undefined;
-      const notes = await this.noteStore.findMetaData({
+      const notes = await this.noteStore.find({
         fname: link.to.fname,
         vault: maybeVault,
       });
       if (notes.data) {
         return Promise.all(
           notes.data.map(async (note) => {
-            const prevNote = _.merge(_.cloneDeep(note), {
-              body: "",
-            });
+            const prevNote = _.cloneDeep(note);
             BacklinkUtils.removeBacklinkInPlace({
               note,
               backlink: maybeBacklink,
             });
-            // Temp solution to get around current restrictions where NoteChangeEntry needs a NoteProp
-            const updatedNote = _.merge(note, {
-              body: "",
-            });
             return {
               prevNote,
-              note: updatedNote,
+              note,
               status: "update",
             };
           })
@@ -485,4 +492,9 @@ export abstract class EngineV3Base implements ReducedDEngine {
     }
     return [];
   }
+
+  /**
+   * See {@link DEngine.renderNote}
+   */
+  abstract renderNote(opts: RenderNoteOpts): Promise<RenderNoteResp>;
 }

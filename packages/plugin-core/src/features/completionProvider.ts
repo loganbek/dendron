@@ -1,6 +1,7 @@
 import {
   ALIAS_NAME,
   assertUnreachable,
+  ConfigService,
   DEngineClient,
   DNoteAnchor,
   ERROR_SEVERITY,
@@ -9,13 +10,13 @@ import {
   LINK_NAME,
   LINK_NAME_NO_SPACES,
   NoteLookupUtils,
-  NoteProps,
   NotePropsMeta,
   TAGS_HIERARCHY,
+  URI,
   USERS_HIERARCHY,
   VaultUtils,
 } from "@dendronhq/common-all";
-import { DConfig, getDurationMilliseconds } from "@dendronhq/common-server";
+import { getDurationMilliseconds } from "@dendronhq/common-server";
 import {
   AnchorUtils,
   DendronASTDest,
@@ -107,11 +108,11 @@ async function noteToCompletionItem({
   insertTextTransform,
   sortTextTransform,
 }: {
-  note: NoteProps;
+  note: NotePropsMeta;
   range: Range;
-  lblTransform?: (note: NoteProps) => string;
-  insertTextTransform?: (note: NoteProps) => Promise<string>;
-  sortTextTransform?: (note: NoteProps) => string | undefined;
+  lblTransform?: (note: NotePropsMeta) => string;
+  insertTextTransform?: (note: NotePropsMeta) => Promise<string>;
+  sortTextTransform?: (note: NotePropsMeta) => string | undefined;
 }): Promise<CompletionItem> {
   const label = lblTransform ? lblTransform(note) : note.fname;
   const insertText = insertTextTransform
@@ -248,7 +249,7 @@ export const provideCompletionItems = sentryReportingCallback(
     const { wsRoot } = engine;
     let completionItems: CompletionItem[];
     const completionsIncomplete = true;
-    const currentVault = WSUtils.getVaultFromDocument(document);
+    const currentVault = await WSUtils.getVaultFromDocument(document);
 
     if (found?.groups?.hashTag) {
       completionItems = await provideCompletionsForTag({
@@ -273,7 +274,7 @@ export const provideCompletionItems = sentryReportingCallback(
       } else {
         qsRaw = "";
       }
-      const insertTextTransform = async (note: NoteProps) => {
+      const insertTextTransform = async (note: NotePropsMeta) => {
         let resp = note.fname;
         if (found?.groups?.noBracket !== undefined) {
           resp += "]]";
@@ -382,6 +383,13 @@ export const resolveCompletionItem = sentryReportingCallback(
     }
 
     try {
+      const configReadResult = await ConfigService.instance().readConfig(
+        URI.file(wsRoot)
+      );
+      if (configReadResult.isErr()) {
+        throw configReadResult.error;
+      }
+      const config = configReadResult.value;
       // Render a preview of this note
       const proc = MDUtilsV5.procRemarkFull(
         {
@@ -389,7 +397,7 @@ export const resolveCompletionItem = sentryReportingCallback(
           dest: DendronASTDest.MD_REGULAR,
           vault: note.vault,
           fname: note.fname,
-          config: DConfig.readConfigSync(engine.wsRoot, true),
+          config,
           wsRoot,
         },
         {

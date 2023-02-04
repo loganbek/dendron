@@ -22,8 +22,13 @@ export class DoctorUtils {
     const fsPath = document.uri.fsPath;
     // return if file is not a markdown
     if (!fsPath.endsWith(".md")) return;
+    // return if file is in source control view
+    if (document.uri.scheme === "git") return;
+
     const extension = ExtensionProvider.getExtension();
-    const { vaults, wsRoot, engine } = extension.getDWorkspace();
+    const ws = extension.getDWorkspace();
+    const { wsRoot, engine } = ws;
+    const vaults = await ws.vaults;
     let vault;
     try {
       vault = VaultUtils.getVaultByFilePath({

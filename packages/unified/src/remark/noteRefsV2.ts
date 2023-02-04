@@ -10,7 +10,7 @@ import {
   DVault,
   getSlugger,
   IDendronError,
-  IntermediateDendronConfig,
+  DendronConfig,
   isBlockAnchor,
   NoteDicts,
   NoteDictsUtils,
@@ -61,6 +61,30 @@ type ConvertNoteRefHelperOpts = ConvertNoteRefOpts & {
   body: string;
   note: NoteProps;
 };
+
+export class NoteRefUtils {
+  static dnodeRefLink2String(link: DNoteRefLink) {
+    const { anchorStart, anchorStartOffset, anchorEnd } = link.data;
+    const { fname, alias } = link.from;
+    const linkText = alias ? `${alias}|${fname}` : fname;
+    let suffix = "";
+
+    const vaultPrefix = link.data.vaultName
+      ? `${CONSTANTS.DENDRON_DELIMETER}${link.data.vaultName}/`
+      : "";
+
+    if (anchorStart) {
+      suffix += `#${anchorStart}`;
+    }
+    if (anchorStartOffset) {
+      suffix += `,${anchorStartOffset}`;
+    }
+    if (anchorEnd) {
+      suffix += `:#${anchorEnd}`;
+    }
+    return `![[${vaultPrefix}${linkText}${suffix}]]`;
+  }
+}
 
 function gatherNoteRefs({
   link,
@@ -204,26 +228,7 @@ function attachCompiler(proc: Unified.Processor, _opts?: CompilerOpts) {
 
       // converting to itself (used for doctor commands. preserve existing format)
       if (dest === DendronASTDest.MD_DENDRON) {
-        const { fname, alias } = ndata.link.from;
-
-        const { anchorStart, anchorStartOffset, anchorEnd } = ndata.link.data;
-        const link = alias ? `${alias}|${fname}` : fname;
-        let suffix = "";
-
-        const vaultPrefix = ndata.link.data.vaultName
-          ? `${CONSTANTS.DENDRON_DELIMETER}${ndata.link.data.vaultName}/`
-          : "";
-
-        if (anchorStart) {
-          suffix += `#${anchorStart}`;
-        }
-        if (anchorStartOffset) {
-          suffix += `,${anchorStartOffset}`;
-        }
-        if (anchorEnd) {
-          suffix += `:#${anchorEnd}`;
-        }
-        return `![[${vaultPrefix}${link}${suffix}]]`;
+        return NoteRefUtils.dnodeRefLink2String(ndata.link);
       }
       return;
     };
@@ -384,7 +389,7 @@ export function convertNoteRefToHAST(
 
   const prettyRefs = shouldRenderPretty({ proc });
 
-  const publishingConfig = ConfigUtils.getPublishingConfig(config);
+  const publishingConfig = ConfigUtils.getPublishing(config);
   const duplicateNoteConfig = publishingConfig.duplicateNoteBehavior;
   // process note references.
   // let noteRefs: DNoteLoc[] = [];
@@ -440,7 +445,10 @@ export function convertNoteRefToHAST(
 
     let data;
     if (noteCacheForRenderDict) {
-      data = NoteDictsUtils.findByFname(fname, noteCacheForRenderDict);
+      data = NoteDictsUtils.findByFname({
+        fname,
+        noteDicts: noteCacheForRenderDict,
+      });
       // data = NoteDictsUtils.findByFname(fname, noteCacheForRenderDict, vault);
     }
     if (!data || data.length === 0) {
@@ -952,7 +960,7 @@ function findBlockAnchor({
 }
 
 function getTitle(opts: {
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
   note: NoteProps;
   loc: DNoteLoc;
   shouldApplyPublishRules?: boolean;
@@ -979,7 +987,7 @@ const genRefAsIFrame = ({
   noteId: string;
   content: Parent;
   title: string;
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
   prettyHAST: Parent<Node<Data>, Data>;
 }) => {
   const refId = getRefId({ id: noteId, link });
@@ -990,8 +998,7 @@ const genRefAsIFrame = ({
     prettyHAST,
   });
 
-  const assetsPrefix =
-    ConfigUtils.getPublishingConfig(config).assetsPrefix ?? "";
+  const assetsPrefix = ConfigUtils.getPublishing(config).assetsPrefix ?? "";
   return paragraph(
     html(
       `<iframe class="noteref-iframe" src="${assetsPrefix}/refs/${refId}" title="Reference to the note called ${title}">Your browser does not support iframes.</iframe>`

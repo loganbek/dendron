@@ -6,14 +6,14 @@ import {
   DVault,
   DWorkspace,
   FOLDERS,
-  IntermediateDendronConfig,
   SelfContainedVault,
   VaultRemoteSource,
   VaultUtils,
   WorkspaceEvents,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
 import {
-  DConfig,
   GitUtils,
   pathForVaultRoot,
   simpleGit,
@@ -205,6 +205,11 @@ export class VaultAddCommand extends BasicCommand<CommandOpts, CommandOutput> {
   }
 
   async gatherInputs(): Promise<CommandOpts | undefined> {
+    window.showWarningMessage(
+      `This command will be deprecated in future releases. 
+      Please use Dendron: Create New Vault to create a new vault and 
+      Dendron: Add Existing Vault to add an existing vault to your workspace.`
+    );
     const sourceTypeSelected = await VSCodeUtils.showQuickPick([
       { label: VaultType.LOCAL, picked: true },
       { label: VaultType.REMOTE },
@@ -214,7 +219,8 @@ export class VaultAddCommand extends BasicCommand<CommandOpts, CommandOutput> {
     }
     const sourceType = sourceTypeSelected.label;
 
-    const { config } = ExtensionProvider.getDWorkspace();
+    const ws = ExtensionProvider.getDWorkspace();
+    const config = await ws.config;
     if (config.dev?.enableSelfContainedVaults) {
       return this.gatherVaultSelfContained(sourceType);
     } else {
@@ -377,10 +383,14 @@ export class VaultAddCommand extends BasicCommand<CommandOpts, CommandOutput> {
           path.join(vaultRootPath, CONSTANTS.DENDRON_CONFIG_FILE)
         )
       ) {
-        const vaultConfig = DConfig.getRaw(
-          vaultRootPath
-        ) as IntermediateDendronConfig;
-        if (ConfigUtils.getVaults(vaultConfig)?.length > 1) {
+        const configReadResult = await ConfigService.instance().readConfig(
+          URI.file(vaultRootPath)
+        );
+        if (configReadResult.isErr()) {
+          throw configReadResult.error;
+        }
+        const config = configReadResult.value;
+        if (ConfigUtils.getVaults(config)?.length > 1) {
           await AnalyticsUtils.trackForNextRun(
             WorkspaceEvents.TransitiveDepsWarningShow
           );

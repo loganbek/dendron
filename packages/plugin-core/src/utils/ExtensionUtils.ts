@@ -1,19 +1,19 @@
 import { launchv2, ServerUtils } from "@dendronhq/api-server";
 import {
   ConfigEvents,
+  ConfigService,
   ConfigUtils,
   CONSTANTS,
   CURRENT_AB_TESTS,
+  DendronConfig,
   getStage,
   InstallStatus,
-  IntermediateDendronConfig,
   TaskNoteUtils,
   Time,
   VaultUtils,
   VSCodeEvents,
 } from "@dendronhq/common-all";
 import {
-  DConfig,
   getDurationMilliseconds,
   SegmentClient,
 } from "@dendronhq/common-server";
@@ -47,7 +47,7 @@ async function startServerProcess(): Promise<{
   subprocess?: ExecaChildProcess;
 }> {
   const { nextServerUrl, nextStaticRoot, engineServerPort } =
-    ExtensionProvider.getDWorkspace().config.dev || {};
+    (await ExtensionProvider.getDWorkspace().config).dev || {};
   // const ctx = "startServer";
   const maybePort =
     ExtensionProvider.getExtension()
@@ -160,6 +160,22 @@ export class ExtensionUtils {
     return ext as vscode.Extension<any>;
   }
 
+  static isEnterprise(context: vscode.ExtensionContext) {
+    return context.extension.id === "dendron.dendron-enterprise";
+  }
+
+  static hasValidLicense() {
+    // @ts-ignore
+    const enterpriseLicense = MetadataService.instance().getMeta()[
+      "enterpriseLicense"
+    ] as string;
+    // TODO
+    if (!enterpriseLicense) {
+      return false;
+    }
+    return true;
+  }
+
   static _TUTORIAL_IDS: Set<string> | undefined;
   static getTutorialIds(): Set<string> {
     if (_.isUndefined(ExtensionUtils._TUTORIAL_IDS)) {
@@ -191,9 +207,7 @@ export class ExtensionUtils {
     return ExtensionUtils._TUTORIAL_IDS;
   }
 
-  static setWorkspaceContextOnActivate(
-    dendronConfig: IntermediateDendronConfig
-  ) {
+  static setWorkspaceContextOnActivate(dendronConfig: DendronConfig) {
     if (VSCodeUtils.isDevMode()) {
       vscode.commands.executeCommand(
         "setContext",
@@ -307,12 +321,9 @@ export class ExtensionUtils {
   }) {
     const engine = ext.getEngine();
     const workspace = ext.getDWorkspace();
-    const {
-      wsRoot,
-      vaults,
-      type: workspaceType,
-      config: dendronConfig,
-    } = workspace;
+    const { wsRoot, type: workspaceType } = workspace;
+    const vaults = await workspace.vaults;
+    const dendronConfig = await workspace.config;
     const notes = await engine.findNotesMeta({ excludeStub: false });
     let numNotes = notes.length;
 
@@ -395,7 +406,7 @@ export class ExtensionUtils {
     const codeWorkspacePresent = await fs.pathExists(
       path.join(wsRoot, CONSTANTS.DENDRON_WS_NAME)
     );
-    const publishigConfig = ConfigUtils.getPublishingConfig(dendronConfig);
+    const publishigConfig = ConfigUtils.getPublishing(dendronConfig);
     const siteUrl = publishigConfig.siteUrl;
     const publishingTheme = dendronConfig?.publishing?.theme;
     const previewTheme = dendronConfig?.preview?.theme;
@@ -407,8 +418,8 @@ export class ExtensionUtils {
     const dendronConfigChanged = configDiff.length > 0;
 
     const trackProps = {
+      extensionId: ext.context.extension.id,
       duration: durationReloadWorkspace,
-      noCaching: dendronConfig.noCaching || false,
       numNotes,
       numNoteRefs,
       numWikilinks,
@@ -501,12 +512,15 @@ export class ExtensionUtils {
       _.set(trackProps, "ageOfCodeInstallInWeeks", ageOfCodeInstallInWeeks);
     }
 
-    const maybeLocalConfig = DConfig.searchLocalConfigSync(wsRoot);
-    if (maybeLocalConfig.data) {
+    const searchOverrideResult = await ConfigService.instance().searchOverride(
+      URI.file(wsRoot)
+    );
+    if (searchOverrideResult.isOk()) {
+      const overrideConfig = searchOverrideResult.value;
       trackProps.hasLocalConfig = true;
-      if (maybeLocalConfig.data.workspace.vaults) {
+      if (overrideConfig.workspace?.vaults) {
         trackProps.numLocalConfigVaults =
-          maybeLocalConfig.data.workspace.vaults.length;
+          overrideConfig.workspace.vaults.length;
       }
     }
 

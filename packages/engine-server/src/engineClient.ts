@@ -48,15 +48,19 @@ import {
   VaultUtils,
   WriteNoteResp,
   WriteSchemaResp,
+  QueryNotesResp,
+  ConfigService,
+  DendronConfig,
+  URI,
+  QueryNotesMetaResp,
 } from "@dendronhq/common-all";
-import { createLogger, DConfig, DLogger } from "@dendronhq/common-server";
+import { createLogger, DLogger } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
-import { FileStorage } from "./drivers/file/storev2";
 import {
   NoteIndexLightProps,
   SQLiteMetadataStore,
-} from "./drivers/SQLiteMetadataStore";
+} from "./drivers/PrismaSQLiteMetadataStore";
 import { HistoryService } from "./history";
 import { EngineUtils } from "./utils";
 
@@ -67,6 +71,7 @@ type DendronEngineClientOpts = {
 
 export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
   private _onNoteChangedEmitter = new EventEmitter<NoteChangeEntry[]>();
+  private _config;
 
   public notes: NotePropsByIdDict;
   public noteFnames: NotePropsByFnameDict;
@@ -77,10 +82,9 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
   public vaults: DVault[];
   public history?: HistoryService;
   public logger: DLogger;
-  public store: FileStorage;
   public hooks: DHookDict;
 
-  static create({
+  static async create({
     port,
     vaults,
     ws,
@@ -98,7 +102,14 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
       apiPath: "api",
       logger,
     });
-    return new DendronEngineClient({ api, vaults, ws, history });
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(ws)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
+    return new DendronEngineClient({ api, vaults, ws, history, config });
   }
 
   static getPort({ wsRoot }: { wsRoot: string }): number {
@@ -115,10 +126,12 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
     ws,
     history,
     logger,
+    config,
   }: {
     api: DendronAPI;
     history?: HistoryService;
     logger?: DLogger;
+    config: DendronConfig;
   } & DendronEngineClientOpts) {
     this.api = api;
     this.notes = {};
@@ -128,18 +141,13 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
     this.ws = ws;
     this.history = history;
     this.logger = logger || createLogger();
-    const config = DConfig.readConfigSync(ws);
     this.fuseEngine = new FuseEngine({
       fuzzThreshold: ConfigUtils.getLookup(config).note.fuzzThreshold,
-    });
-    this.store = new FileStorage({
-      engine: this,
-      logger: this.logger,
-      config,
     });
     this.hooks = ConfigUtils.getWorkspace(config).hooks || {
       onCreate: [],
     };
+    this._config = config;
   }
 
   /**
@@ -171,13 +179,19 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
       };
     }
     if (!resp.data) {
-      throw new DendronError({ message: "no data" });
+      // TODO SQLite - sqlite impl doesn't return data from init; eventually no
+      // implementations should. To converge later
+      if (this._config.dev?.useSqlite) {
+        return {} as DEngineInitResp;
+      } else {
+        throw new DendronError({ message: "no data" });
+      }
     }
     const { notes, config } = resp.data;
+    this._config = config;
     this.notes = notes;
     this.noteFnames = NoteFnameDictUtils.createNotePropsByFnameDict(this.notes);
     await this.fuseEngine.replaceNotesIndex(notes);
-    this.store.notes = notes;
     return {
       error: resp.error,
       data: {
@@ -192,23 +206,31 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
    * See {@link DStore.getNote}
    */
   async getNote(id: string): Promise<GetNoteResp> {
-    const maybeNote = this.notes[id];
-
-    if (maybeNote) {
-      return { data: _.cloneDeep(maybeNote) };
+    if (this._config.dev?.enableEngineV3) {
+      return this.api.noteGet({ id, ws: this.ws });
     } else {
-      return {
-        error: DendronError.createFromStatus({
-          status: ERROR_STATUS.CONTENT_NOT_FOUND,
-          message: `NoteProps not found for key ${id}.`,
-          severity: ERROR_SEVERITY.MINOR,
-        }),
-      };
+      const maybeNote = this.notes[id];
+
+      if (maybeNote) {
+        return { data: _.cloneDeep(maybeNote) };
+      } else {
+        return {
+          error: DendronError.createFromStatus({
+            status: ERROR_STATUS.CONTENT_NOT_FOUND,
+            message: `NoteProps not found for key ${id}.`,
+            severity: ERROR_SEVERITY.MINOR,
+          }),
+        };
+      }
     }
   }
 
   async getNoteMeta(id: string): Promise<GetNoteMetaResp> {
-    return this.getNote(id);
+    if (this._config.dev?.enableEngineV3) {
+      return this.api.noteGetMeta({ id, ws: this.ws });
+    } else {
+      return this.getNote(id);
+    }
   }
 
   /**
@@ -216,11 +238,15 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
    * TODO: remove this.notes
    */
   async bulkGetNotes(ids: string[]): Promise<BulkGetNoteResp> {
-    return {
-      data: ids.map((id) => {
-        return _.cloneDeep(this.notes[id]);
-      }),
-    };
+    if (this._config.dev?.enableEngineV3) {
+      return this.api.noteBulkGet({ ids, ws: this.ws });
+    } else {
+      return {
+        data: ids.map((id) => {
+          return _.cloneDeep(this.notes[id]);
+        }),
+      };
+    }
   }
 
   /**
@@ -228,7 +254,11 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
    * TODO: remove this.notes
    */
   async bulkGetNotesMeta(ids: string[]): Promise<BulkGetNoteMetaResp> {
-    return this.bulkGetNotes(ids);
+    if (this._config.dev?.enableEngineV3) {
+      return this.api.noteBulkGetMeta({ ids, ws: this.ws });
+    } else {
+      return this.bulkGetNotes(ids);
+    }
   }
 
   /**
@@ -241,10 +271,10 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
 
   /**
    * See {@link DStore.findNotesMeta}
-   * TODO: fix logic after engine refactor
    */
   async findNotesMeta(opts: FindNoteOpts): Promise<NotePropsMeta[]> {
-    return this.findNotes(opts);
+    const resp = await this.api.noteFindMeta({ ...opts, ws: this.ws });
+    return resp.data!;
   }
 
   async bulkWriteNotes(opts: BulkWriteNotesOpts) {
@@ -305,65 +335,111 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
     return resp;
   }
 
-  async queryNote(
-    opts: Parameters<DEngineClient["queryNotes"]>[0]
-  ): Promise<NoteProps[]> {
+  async queryNotes(opts: QueryNotesOpts): Promise<QueryNotesResp> {
     const { qs, onlyDirectChildren, vault, originalQS } = opts;
     let noteIndexProps: NoteIndexProps[] | NoteIndexLightProps[];
-    const config = DConfig.readConfigSync(this.wsRoot);
+    let noteProps: NoteProps[];
+
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(this.wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
     if (config.workspace.metadataStore === "sqlite") {
       try {
         const resp = await SQLiteMetadataStore.search(qs);
         noteIndexProps = resp.hits;
+        noteProps = noteIndexProps.map((ent) => this.notes[ent.id]);
+        // TODO: hack
+        if (!_.isUndefined(vault)) {
+          noteProps = noteProps.filter((ent) =>
+            VaultUtils.isEqual(vault, ent.vault, this.wsRoot)
+          );
+        }
         this.logger.debug({ ctx: "queryNote", query: resp.query });
       } catch (err) {
         fs.appendFileSync("/tmp/out.log", "ERROR: unable to query note", {
           encoding: "utf8",
         });
-        noteIndexProps = [];
+        noteProps = [];
       }
+    } else if (this._config.dev?.enableEngineV3) {
+      noteProps = (
+        await this.api.noteQuery({
+          opts,
+          ws: this.wsRoot,
+        })
+      ).data!;
     } else {
-      noteIndexProps = await this.fuseEngine.queryNote({
+      noteIndexProps = this.fuseEngine.queryNote({
         qs,
         onlyDirectChildren,
         originalQS,
       });
-    }
-    let noteProps = noteIndexProps.map((ent) => this.notes[ent.id]);
-    // TODO: hack
-    if (!_.isUndefined(vault)) {
-      noteProps = noteProps.filter((ent) =>
-        VaultUtils.isEqual(vault, ent.vault, this.wsRoot)
-      );
+      noteProps = noteIndexProps.map((ent) => this.notes[ent.id]);
+      // TODO: hack
+      if (!_.isUndefined(vault)) {
+        noteProps = noteProps.filter((ent) =>
+          VaultUtils.isEqual(vault, ent.vault, this.wsRoot)
+        );
+      }
     }
     return noteProps;
   }
 
-  async queryNotes(opts: QueryNotesOpts) {
-    const items = await this.queryNote(opts);
-    return {
-      data: items,
-    };
-  }
-
-  queryNotesSync({
-    qs,
-    originalQS,
-    vault,
-  }: {
-    qs: string;
-    originalQS: string;
-    vault?: DVault;
-  }) {
-    let items = this.fuseEngine.queryNote({ qs, originalQS });
-    if (vault) {
-      items = items.filter((ent) => {
-        return VaultUtils.isEqual(ent.vault, vault, this.wsRoot);
-      });
+  async queryNotesMeta(opts: QueryNotesOpts): Promise<QueryNotesMetaResp> {
+    const { qs, onlyDirectChildren, vault, originalQS } = opts;
+    let noteIndexProps: NoteIndexProps[] | NoteIndexLightProps[];
+    let noteProps: NotePropsMeta[];
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(this.wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
     }
-    return {
-      data: items.map((ent) => this.notes[ent.id]),
-    };
+    const config = configReadResult.value;
+    if (config.workspace.metadataStore === "sqlite") {
+      try {
+        const resp = await SQLiteMetadataStore.search(qs);
+        noteIndexProps = resp.hits;
+        noteProps = noteIndexProps.map((ent) => this.notes[ent.id]);
+        // TODO: hack
+        if (!_.isUndefined(vault)) {
+          noteProps = noteProps.filter((ent) =>
+            VaultUtils.isEqual(vault, ent.vault, this.wsRoot)
+          );
+        }
+        this.logger.debug({ ctx: "queryNote", query: resp.query });
+      } catch (err) {
+        fs.appendFileSync("/tmp/out.log", "ERROR: unable to query note", {
+          encoding: "utf8",
+        });
+        noteProps = [];
+      }
+    } else if (this._config.dev?.enableEngineV3) {
+      noteProps = (
+        await this.api.noteQueryMeta({
+          opts,
+          ws: this.wsRoot,
+        })
+      ).data!;
+    } else {
+      noteIndexProps = this.fuseEngine.queryNote({
+        qs,
+        onlyDirectChildren,
+        originalQS,
+      });
+      noteProps = noteIndexProps.map((ent) => this.notes[ent.id]);
+      // TODO: hack
+      if (!_.isUndefined(vault)) {
+        noteProps = noteProps.filter((ent) =>
+          VaultUtils.isEqual(vault, ent.vault, this.wsRoot)
+        );
+      }
+    }
+    return noteProps;
   }
 
   async renderNote(opts: RenderNoteOpts) {
@@ -371,7 +447,8 @@ export class DendronEngineClient implements DEngineClient, EngineEventEmitter {
   }
 
   async refreshNotesV2(notes: NoteChangeEntry[]) {
-    if (_.isUndefined(notes)) {
+    // No-op for v3. TODO: remove after migration
+    if (_.isUndefined(notes) || this._config.dev?.enableEngineV3) {
       return;
     }
 

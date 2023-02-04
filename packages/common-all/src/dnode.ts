@@ -44,7 +44,6 @@ import {
 } from "./types";
 import { DVault } from "./types/DVault";
 import {
-  DefaultMap,
   getSlugger,
   isNotUndefined,
   normalizeUnixPath,
@@ -186,7 +185,7 @@ export class DNodeUtils {
    * @returns
    */
   static enhancePropForQuickInputV4(opts: {
-    props: NoteProps;
+    props: NotePropsMeta;
     schema?: SchemaModuleProps;
     alwaysShow?: boolean;
   }): NoteQuickInputV2 {
@@ -219,13 +218,21 @@ export class DNodeUtils {
     const { vault } = opts;
     const dirname = DNodeUtils.dirName(fpath);
     if (dirname === "") {
-      const _node = NoteDictsUtils.findByFname("root", noteDicts, vault)[0];
+      const _node = NoteDictsUtils.findByFname({
+        fname: "root",
+        noteDicts,
+        vault,
+      })[0];
       if (_.isUndefined(_node)) {
         throw new DendronError({ message: `no root found for ${fpath}` });
       }
       return _node;
     }
-    const maybeNode = NoteDictsUtils.findByFname(dirname, noteDicts, vault)[0];
+    const maybeNode = NoteDictsUtils.findByFname({
+      fname: dirname,
+      noteDicts,
+      vault,
+    })[0];
     if (
       (maybeNode && !opts?.noStubs) ||
       (maybeNode && opts?.noStubs && !maybeNode.stub && !maybeNode.schemaStub)
@@ -278,7 +285,7 @@ export class DNodeUtils {
     return _.omit(props, blacklist);
   }
 
-  static getDepth(node: DNodeProps): number {
+  static getDepth(node: NotePropsMeta): number {
     return this.getFNameDepth(node.fname);
   }
 
@@ -351,11 +358,11 @@ export class NoteUtils {
       return changed;
     }
     const parentPath = DNodeUtils.dirName(note.fname).toLowerCase();
-    const parent = NoteDictsUtils.findByFname(
-      parentPath,
+    const parent = NoteDictsUtils.findByFname({
+      fname: parentPath,
       noteDicts,
-      note.vault
-    )[0];
+      vault: note.vault,
+    })[0];
 
     if (parent) {
       const prevParentState = { ...parent };
@@ -400,7 +407,7 @@ export class NoteUtils {
   }
 
   static addSchema(opts: {
-    note: NoteProps;
+    note: NotePropsMeta;
     schemaModule: SchemaModuleProps;
     schema: SchemaProps;
   }) {
@@ -594,7 +601,10 @@ export class NoteUtils {
     });
   }
 
-  static genSchemaDesc(note: NoteProps, schemaMod?: SchemaModuleProps): string {
+  static genSchemaDesc(
+    note: NotePropsMeta,
+    schemaMod?: SchemaModuleProps
+  ): string {
     const prefixParts = [];
     if (note.title !== note.fname) {
       prefixParts.push(note.title);
@@ -679,142 +689,6 @@ export class NoteUtils {
   static genTitleFromFullFname(fname: string): string {
     const formatted = fname.replace(/\./g, " ");
     return title(formatted);
-  }
-
-  /** Returns true when the note has reference links (Eg. ![[ref-link]]); false otherwise. */
-  static hasRefLinks(note: NoteProps) {
-    return note.links.some((link) => link.type === "ref");
-  }
-
-  /**
-   * Retrieve the latest update time of the preview note tree.
-   *
-   * Preview note tree includes links whose content is rendered in the rootNote preview,
-   * particularly the reference links (![[ref-link-example]]). */
-  static getLatestUpdateTimeOfPreviewNoteTree({
-    rootNote,
-    notes,
-  }: {
-    rootNote: NoteProps;
-    notes: NotePropsByIdDict;
-  }) {
-    // If the note does not have reference links than the last updated time of
-    // the preview tree is the last updated time of the note itself. Hence, we
-    // can avoid all heavier logic of getting ready to traverse notes.
-    if (!this.hasRefLinks(rootNote)) {
-      return rootNote.updated;
-    }
-
-    // Maps lowercase file names to list of note props with matching file name.
-    // We will use a map to avoid having to loop over the the notes to find the notes
-    // by file names for each fname in the tree. In the future if we start keeping these
-    // values cached centrally we should replace these adhoc created maps with centrally cached values.
-    const mapByFName = new DefaultMap<string, NoteProps[]>(() => []);
-    _.values(notes).forEach((note) => {
-      const lowercaseFName = note.fname.toLowerCase();
-
-      // We are going to follow the current behavior of vault-less file name resolution:
-      // The first matching file name that is met should win.
-      mapByFName.get(lowercaseFName).push(note);
-    });
-
-    const visitedIds = new Set<string>();
-
-    return this._getLatestUpdateTimeOfPreviewNoteTree({
-      note: rootNote,
-      mapByFName,
-      visitedIds,
-      latestUpdated: rootNote.updated,
-    });
-  }
-
-  private static _getLatestUpdateTimeOfPreviewNoteTree({
-    note,
-    latestUpdated,
-    mapByFName,
-    visitedIds,
-  }: {
-    note: NoteProps;
-    latestUpdated: number;
-    mapByFName: DefaultMap<string, NoteProps[]>;
-    visitedIds: Set<string>;
-  }): number {
-    if (note.updated > latestUpdated) {
-      latestUpdated = note.updated;
-    }
-
-    // Mark the visited nodes so we don't end up recursively spinning if there
-    // are cycles in our preview tree such as [[foo]] -> [[!bar]] -> [[!foo]]
-    if (visitedIds.has(note.id)) {
-      return latestUpdated;
-    } else {
-      visitedIds.add(note.id);
-    }
-
-    const linkedRefNotes = note.links
-      .filter((link) => link.type === "ref")
-      .filter((link) => link.to && link.to.fname)
-      .map((link) => {
-        const pointTo = link.to!;
-        const lowercaseFname = pointTo.fname!.toLowerCase();
-
-        const matchingList: NoteProps[] = mapByFName.get(lowercaseFname);
-
-        // When there is a vault specified in the link we want to respect that
-        // specification, otherwise we will map by just the file name.
-        if (pointTo.vaultName) {
-          const filteredByVault = matchingList.filter(
-            (n) => VaultUtils.getName(n.vault) === pointTo.vaultName
-          );
-          return filteredByVault[0];
-        } else {
-          return matchingList[0];
-        }
-      })
-      // Filter out broken links (pointing to non existent files)
-      .filter((refNote) => refNote !== undefined);
-
-    for (const linkedNote of linkedRefNotes) {
-      // Recurse into each child reference linked note.
-      latestUpdated = this._getLatestUpdateTimeOfPreviewNoteTree({
-        note: linkedNote,
-        mapByFName,
-        visitedIds,
-        latestUpdated,
-      });
-    }
-
-    return latestUpdated;
-  }
-
-  /**
-   * @deprecated see {@link DEngineClient.findNotes}
-   */
-  static getNotesByFnameFromEngine({
-    fname,
-    engine,
-    vault,
-  }: {
-    fname: string;
-    engine: DEngineClient;
-    vault?: DVault;
-  }): NoteProps[] {
-    return NoteDictsUtils.findByFname(
-      fname,
-      { notesById: engine.notes, notesByFname: engine.noteFnames },
-      vault
-    );
-  }
-
-  /**
-   * @deprecated see {@link DEngineClient.findNotes}
-   */
-  static getNoteByFnameFromEngine(opts: {
-    fname: string;
-    vault: DVault;
-    engine: DEngineClient;
-  }): NoteProps | undefined {
-    return this.getNotesByFnameFromEngine(opts)[0];
   }
 
   static getNotesWithLinkTo({
@@ -1016,7 +890,6 @@ export class NoteUtils {
     // Separate custom and builtin props
     const builtinProps = _.pick(propsWithTrait, [
       ...Object.values(DNodeExplicitPropsEnum),
-      "stub",
     ]);
 
     const { custom: customProps } = cleanProps;
@@ -1024,12 +897,9 @@ export class NoteUtils {
     return meta;
   }
 
-  static serialize(props: NoteProps, opts?: { excludeStub?: boolean }): string {
+  static serialize(props: NoteProps): string {
     const body = props.body;
-    const blacklist = ["parent", "children"];
-    if (opts?.excludeStub) {
-      blacklist.push("stub");
-    }
+    const blacklist = ["parent", "children", "stub"];
     const meta = _.omit(NoteUtils.serializeExplicitProps(props), blacklist);
     // Make sure title and ID are always strings
     meta.title = _.toString(meta.title);
@@ -1185,16 +1055,20 @@ export class NoteUtils {
    * @param fname The fname of note that you want to get the color of.
    * @returns The color, and whether this color was randomly generated or explicitly defined.
    */
-  static color(opts: { fname: string; vault?: DVault }): {
+  static color(opts: { fname: string; vault?: DVault; note?: NotePropsMeta }): {
     color: string;
     type: "configured" | "generated";
   } {
+    const { fname, note } = opts;
     // TODO: Re-enable the ancestor color logic later
     // const ancestors = NoteUtils.ancestors({ ...opts, includeSelf: true });
     // for (const note of ancestors) {
     //   if (note.color) return { color: note.color, type: "configured" };
     // }
-    return { color: randomColor(opts.fname), type: "generated" };
+    if (note && note.color) {
+      return { color: note.color, type: "configured" };
+    }
+    return { color: randomColor(fname), type: "generated" };
   }
 
   /** Get the ancestors of a note, in the order of the closest to farthest.
@@ -1471,30 +1345,6 @@ export class SchemaUtils {
     };
   }
 
-  static enhanceForQuickInput({
-    props,
-    vaults,
-  }: {
-    props: SchemaModuleProps;
-    vaults: DVault[];
-  }): DNodePropsQuickInputV2 {
-    const vaultSuffix =
-      vaults.length > 1
-        ? ` (${path.basename(props.vault?.fsPath as string)})`
-        : "";
-    const label = DNodeUtils.isRoot(props.root) ? "root" : props.root.id;
-    const detail = props.root.desc;
-    const out = {
-      ...props.root,
-      fname: props.fname,
-      label,
-      detail,
-      description: vaultSuffix,
-      vault: props.vault,
-    };
-    return out;
-  }
-
   static getModuleRoot(
     module: SchemaModuleOpts | SchemaModuleProps
   ): SchemaProps {
@@ -1580,7 +1430,7 @@ export class SchemaUtils {
     note,
     engine,
   }: {
-    note: NoteProps;
+    note: NotePropsMeta;
     engine: DEngineClient;
   }) {
     if (note.schema) {

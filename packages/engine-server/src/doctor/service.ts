@@ -1,6 +1,7 @@
 import {
   assertInvalidState,
   asyncLoopOneAtATime,
+  ConfigService,
   ConfigUtils,
   DendronError,
   DEngineClient,
@@ -17,6 +18,7 @@ import {
   NoteProps,
   NoteUtils,
   ProcFlavor,
+  URI,
   ValidateFnameResp,
   VaultUtils,
 } from "@dendronhq/common-all";
@@ -115,11 +117,11 @@ export class DoctorService implements Disposable {
         if (!vault) return false;
       }
       const isMultiVault = vaults.length > 1;
-      const noteExists: NoteProps | undefined = NoteDictsUtils.findByFname(
-        link.to!.fname as string,
+      const noteExists: NoteProps | undefined = NoteDictsUtils.findByFname({
+        fname: link.to!.fname as string,
         noteDicts,
-        hasVaultPrefix ? vault! : note.vault
-      )[0];
+        vault: hasVaultPrefix ? vault! : note.vault,
+      })[0];
       if (hasVaultPrefix) {
         // true: link w/ vault prefix that points to nothing. (candidate for sure)
         // false: link w/ vault prefix that points to a note. (valid link)
@@ -204,7 +206,7 @@ export class DoctorService implements Disposable {
     if (_.isUndefined(candidates)) {
       notes =
         (query
-          ? engine.queryNotesSync({ qs: query, originalQS: query }).data
+          ? await engine.queryNotes({ qs: query, originalQS: query })
           : await engine.findNotes({ excludeStub: true })) ?? [];
     } else {
       notes = candidates;
@@ -234,8 +236,20 @@ export class DoctorService implements Disposable {
     switch (action) {
       case DoctorActionsEnum.REMOVE_DEPRECATED_CONFIGS: {
         const { wsRoot } = engine;
-        const rawConfig = DConfig.getRaw(wsRoot);
-        const config = DConfig.readConfigSync(wsRoot);
+        const configReadRawResult = await ConfigService.instance().readRaw(
+          URI.file(wsRoot)
+        );
+        if (configReadRawResult.isErr()) {
+          throw configReadRawResult.error;
+        }
+        const rawConfig = configReadRawResult.value;
+        const configReadResult = await ConfigService.instance().readConfig(
+          URI.file(wsRoot)
+        );
+        if (configReadResult.isErr()) {
+          throw configReadResult.error;
+        }
+        const config = configReadResult.value;
         const pathsToDelete = ConfigUtils.detectDeprecatedConfigs({
           config: rawConfig,
           deprecatedPaths: DEPRECATED_PATHS,
@@ -257,7 +271,13 @@ export class DoctorService implements Disposable {
             _.unset(configDeepCopy, path);
           });
 
-          await DConfig.writeConfig({ wsRoot, config: configDeepCopy });
+          const configWriteResult = await ConfigService.instance().writeConfig(
+            URI.file(wsRoot),
+            configDeepCopy
+          );
+          if (configWriteResult.isErr()) {
+            throw configWriteResult.error;
+          }
 
           return {
             exit: true,
@@ -271,7 +291,14 @@ export class DoctorService implements Disposable {
       }
       case DoctorActionsEnum.ADD_MISSING_DEFAULT_CONFIGS: {
         const { wsRoot } = engine;
-        const rawConfig = DConfig.getRaw(wsRoot);
+        const configReadRawResult = await ConfigService.instance().readRaw(
+          URI.file(wsRoot)
+        );
+        if (configReadRawResult.isErr()) {
+          throw configReadRawResult.error;
+        }
+        const rawConfig = configReadRawResult.value;
+
         const detectOut = ConfigUtils.detectMissingDefaults({
           config: rawConfig,
         });
@@ -291,7 +318,14 @@ export class DoctorService implements Disposable {
             }
 
             // write config
-            await DConfig.writeConfig({ wsRoot, config: backfilledConfig });
+            const configWriteResult =
+              await ConfigService.instance().writeConfig(
+                URI.file(wsRoot),
+                backfilledConfig
+              );
+            if (configWriteResult.isErr()) {
+              throw configWriteResult.error;
+            }
             return {
               exit: true,
               resp: {
@@ -312,6 +346,13 @@ export class DoctorService implements Disposable {
       case DoctorActionsEnum.H1_TO_TITLE: {
         doctorAction = async (note: NoteProps) => {
           const changes: NoteChangeEntry[] = [];
+          const configReadResult = await ConfigService.instance().readConfig(
+            URI.file(engine.wsRoot)
+          );
+          if (configReadResult.isErr()) {
+            throw configReadResult.error;
+          }
+          const config = configReadResult.value;
           const proc = MDUtilsV5._procRemark(
             {
               mode: ProcMode.IMPORT,
@@ -322,7 +363,7 @@ export class DoctorService implements Disposable {
               noteToRender: note,
               fname: note.fname,
               vault: note.vault,
-              config: DConfig.readConfigSync(engine.wsRoot),
+              config,
             }
           );
           const newBody = await proc()
@@ -343,6 +384,13 @@ export class DoctorService implements Disposable {
       case DoctorActionsEnum.HI_TO_H2: {
         doctorAction = async (note: NoteProps) => {
           const changes: NoteChangeEntry[] = [];
+          const configReadResult = await ConfigService.instance().readConfig(
+            URI.file(engine.wsRoot)
+          );
+          if (configReadResult.isErr()) {
+            throw configReadResult.error;
+          }
+          const config = configReadResult.value;
           const proc = MDUtilsV5._procRemark(
             {
               mode: ProcMode.IMPORT,
@@ -353,7 +401,7 @@ export class DoctorService implements Disposable {
               noteToRender: note,
               fname: note.fname,
               vault: note.vault,
-              config: DConfig.readConfigSync(engine.wsRoot),
+              config,
             }
           );
           const newBody = await proc()
@@ -408,6 +456,7 @@ export class DoctorService implements Disposable {
           note.id = genUUID();
           await engine.writeNote(note, {
             runHooks: false,
+            overrideExisting: true,
           });
           numChanges += 1;
         };
@@ -524,7 +573,7 @@ export class DoctorService implements Disposable {
           }
 
           await asyncLoopOneAtATime(vaultsToFix, async (vault) => {
-            const config = workspaceService.config;
+            const config = await workspaceService.config;
             this.L.info({
               ctx,
               vaultName: VaultUtils.getName(vault),
@@ -714,8 +763,11 @@ export class DoctorService implements Disposable {
           fname,
         });
         const canRename =
-          NoteDictsUtils.findByFname(cleanedFname, noteDicts, note.vault)
-            .length === 0;
+          NoteDictsUtils.findByFname({
+            fname: cleanedFname,
+            noteDicts,
+            vault: note.vault,
+          }).length === 0;
         return {
           ...item,
           cleanedFname,

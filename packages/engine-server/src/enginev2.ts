@@ -28,11 +28,12 @@ import {
   GetNoteBlocksOpts,
   GetNoteBlocksResp,
   IDendronError,
-  IntermediateDendronConfig,
+  DendronConfig,
   LruCache,
   milliseconds,
   newRange,
   NoteChangeEntry,
+  NoteDicts,
   NoteDictsUtils,
   NoteProps,
   NotePropsByIdDict,
@@ -59,6 +60,9 @@ import {
   GetNoteMetaResp,
   GetNoteResp,
   isNotUndefined,
+  ConfigService,
+  URI,
+  QueryNotesMetaResp,
 } from "@dendronhq/common-all";
 import {
   createLogger,
@@ -86,7 +90,7 @@ type DendronEngineOptsV2 = {
   createStore?: CreateStoreFunc;
   mode?: DEngineMode;
   logger?: DLogger;
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
 };
 type DendronEnginePropsV2 = Required<DendronEngineOptsV2>;
 
@@ -97,42 +101,30 @@ type CachedPreview = {
 };
 
 function createRenderedCache(
-  config: IntermediateDendronConfig,
+  config: DendronConfig,
   logger: DLogger
 ): Cache<string, CachedPreview> {
   const ctx = "createRenderedCache";
 
-  if (config.noCaching) {
-    // If no caching flag is set we will use null caching object to avoid doing any
-    // actual caching of rendered previews.
+  const maxPreviewsCached = ConfigUtils.getWorkspace(config).maxPreviewsCached;
+  if (maxPreviewsCached && maxPreviewsCached > 0) {
     logger.info({
       ctx,
-      msg: `noCaching flag is true, will NOT use preview cache.`,
+      msg: `Creating rendered preview cache set to hold maximum of '${maxPreviewsCached}' items.`,
     });
 
-    return new NullCache();
+    return new LruCache({ maxItems: maxPreviewsCached });
   } else {
-    const maxPreviewsCached =
-      ConfigUtils.getWorkspace(config).maxPreviewsCached;
-    if (maxPreviewsCached && maxPreviewsCached > 0) {
-      logger.info({
-        ctx,
-        msg: `Creating rendered preview cache set to hold maximum of '${config.maxPreviewsCached}' items.`,
-      });
-
-      return new LruCache({ maxItems: maxPreviewsCached });
-    } else {
-      // This is most likely to happen if the user were to set incorrect configuration
-      // value for maxPreviewsCached, we don't want to crash initialization due to
-      // not being able to cache previews. Hence we will log an error and not use
-      // the preview cache.
-      logger.error({
-        ctx,
-        msg: `Did not find valid maxPreviewsCached (value was '${maxPreviewsCached}')
+    // This is most likely to happen if the user were to set incorrect configuration
+    // value for maxPreviewsCached, we don't want to crash initialization due to
+    // not being able to cache previews. Hence we will log an error and not use
+    // the preview cache.
+    logger.error({
+      ctx,
+      msg: `Did not find valid maxPreviewsCached (value was '${maxPreviewsCached}')
         in configuration. When specified th value must be a number greater than 0. Using null cache.`,
-      });
-      return new NullCache();
-    }
+    });
+    return new NullCache();
   }
 }
 
@@ -145,8 +137,6 @@ export class DendronEngineV2 implements DEngine {
   private _vaults: DVault[];
   private renderedCache: Cache<string, CachedPreview>;
   private schemas: SchemaModuleDict;
-
-  static _instance: DendronEngineV2 | undefined;
 
   constructor(props: DendronEnginePropsV2) {
     this.wsRoot = props.wsRoot;
@@ -207,10 +197,6 @@ export class DendronEngineV2 implements DEngine {
     return this._vaults;
   }
 
-  set notes(notes: NotePropsByIdDict) {
-    this.store.notes = notes;
-  }
-
   set vaults(vaults: DVault[]) {
     this._vaults = vaults;
     this.store.vaults = vaults;
@@ -247,7 +233,7 @@ export class DendronEngineV2 implements DEngine {
       // Set schemas locally in the engine:
       this.schemas = schemas;
       await this.updateIndex("schema");
-      this.logger.error({ ctx, msg: "updated index" });
+      this.logger.info({ ctx, msg: "updated index" });
       const hookErrors: DendronError[] = [];
       this.hooks.onCreate = this.hooks.onCreate.filter((hook) => {
         const { valid, error } = HookUtils.validateHook({
@@ -279,13 +265,23 @@ export class DendronEngineV2 implements DEngine {
 
       this.logger.info({ ctx: "init:ext", error, storeError, hookErrors });
 
+      const configReadResult = await ConfigService.instance().readConfig(
+        URI.file(this.wsRoot)
+      );
+      if (configReadResult.isErr()) {
+        return {
+          error: configReadResult.error,
+          data: defaultResp,
+        };
+      }
+      const config = configReadResult.value;
       return {
         error,
         data: {
           notes,
           wsRoot: this.wsRoot,
           vaults: this.vaults,
-          config: DConfig.readConfigSync(this.wsRoot),
+          config,
         },
       };
     } catch (error: any) {
@@ -363,7 +359,7 @@ export class DendronEngineV2 implements DEngine {
         (ent) => ent.note.id === id
       ) as NoteChangeEntry;
       if (noteChangeEntry.status === "delete") {
-        await this.fuseEngine.removeNoteFromIndex(note);
+        this.fuseEngine.removeNoteFromIndex(note);
       }
       return {
         data: changed,
@@ -426,19 +422,6 @@ export class DendronEngineV2 implements DEngine {
     };
   }
 
-  queryNotesSync({
-    qs,
-    originalQS,
-  }: {
-    qs: string;
-    originalQS: string;
-  }): ReturnType<DEngineClient["queryNotesSync"]> {
-    const items = this.fuseEngine.queryNote({ qs, originalQS });
-    return {
-      data: items.map((ent) => this.notes[ent.id]),
-    };
-  }
-
   async querySchema(queryString: string): Promise<QuerySchemaResp> {
     const ctx = "querySchema";
 
@@ -468,14 +451,14 @@ export class DendronEngineV2 implements DEngine {
     if (vault?.selfContained === "true" || vault?.selfContained === "false")
       vault.selfContained = vault.selfContained === "true";
 
-    const items = await this.fuseEngine.queryNote({
+    const items = this.fuseEngine.queryNote({
       qs,
       onlyDirectChildren,
       originalQS,
     });
 
     if (items.length === 0) {
-      return { data: [] };
+      return [];
     }
 
     this.logger.info({ ctx, msg: "exit" });
@@ -485,9 +468,11 @@ export class DendronEngineV2 implements DEngine {
         return VaultUtils.isEqual(vault, ent.vault, this.wsRoot);
       });
     }
-    return {
-      data: notes,
-    };
+    return notes;
+  }
+
+  async queryNotesMeta(opts: QueryNotesOpts): Promise<QueryNotesMetaResp> {
+    return this.queryNotes(opts);
   }
 
   async renderNote({
@@ -501,9 +486,6 @@ export class DendronEngineV2 implements DEngine {
     // If provided, we render the given note entirely. Otherwise find the note in workspace.
     if (!note) {
       note = this.notes[id];
-    } else {
-      // `procRehype` needs the note to be in the engine, so we have to add it in case it's a dummy note
-      this.store.updateNote(note);
     }
 
     // If note was not provided and we couldn't find it, we can't render.
@@ -587,13 +569,86 @@ export class DendronEngineV2 implements DEngine {
     }
     // TODO: Add another check to see if backlinks have changed
 
-    return (
-      cachedPreview.updated >=
-      NoteUtils.getLatestUpdateTimeOfPreviewNoteTree({
-        rootNote: note,
-        notes: this.notes,
+    const visitedIds = new Set<string>();
+    return this._isCachedPreviewUpToDate({
+      note,
+      noteDicts: {
+        notesById: this.notes,
+        notesByFname: this.noteFnames,
+      },
+      visitedIds,
+      latestUpdated: cachedPreview.updated,
+    });
+  }
+
+  /**
+   * Check if there exists a note reference that is newer than the provided "latestUpdated"
+   * This is used to determine if a cached preview is up-to-date
+   *
+   * Preview note tree includes links whose content is rendered in the rootNote preview,
+   * particularly the reference links (![[ref-link-example]]).
+   */
+  private _isCachedPreviewUpToDate({
+    note,
+    latestUpdated,
+    noteDicts,
+    visitedIds,
+  }: {
+    note: NoteProps;
+    latestUpdated: number;
+    noteDicts: NoteDicts;
+    visitedIds: Set<string>;
+  }): boolean {
+    if (note.updated > latestUpdated) {
+      return false;
+    }
+
+    // Mark the visited nodes so we don't end up recursively spinning if there
+    // are cycles in our preview tree such as [[foo]] -> [[!bar]] -> [[!foo]]
+    if (visitedIds.has(note.id)) {
+      return true;
+    } else {
+      visitedIds.add(note.id);
+    }
+
+    const linkedRefNotes = note.links
+      .filter((link) => link.type === "ref")
+      .filter((link) => link.to && link.to.fname)
+      .map((link) => {
+        const pointTo = link.to!;
+        // When there is a vault specified in the link we want to respect that
+        // specification, otherwise we will map by just the file name.
+        const maybeVault = pointTo.vaultName
+          ? VaultUtils.getVaultByName({
+              vname: pointTo.vaultName,
+              vaults: this.vaults,
+            })
+          : undefined;
+
+        return NoteDictsUtils.findByFname({
+          fname: pointTo.fname!,
+          noteDicts,
+          vault: maybeVault,
+        })[0];
       })
-    );
+      // Filter out broken links (pointing to non existent files)
+      .filter((refNote) => refNote !== undefined);
+
+    for (const linkedNote of linkedRefNotes) {
+      // Recurse into each child reference linked note.
+      if (
+        !this._isCachedPreviewUpToDate({
+          note: linkedNote,
+          noteDicts,
+          visitedIds,
+          latestUpdated,
+        })
+      ) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private async _renderNote({
@@ -606,7 +661,13 @@ export class DendronEngineV2 implements DEngine {
     dest: DendronASTDest;
   }): Promise<string> {
     let proc: ReturnType<typeof MDUtilsV5["procRehypeFull"]>;
-    const config = DConfig.readConfigSync(this.wsRoot);
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(this.wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
 
     const noteCacheForRenderDict = await getParsingDependencyDicts(
       note,
@@ -657,10 +718,17 @@ export class DendronEngineV2 implements DEngine {
             notesByFname: this.noteFnames,
           });
         } else {
+          const configReadResult = await ConfigService.instance().readConfig(
+            URI.file(this.wsRoot)
+          );
+          if (configReadResult.isErr()) {
+            throw configReadResult.error;
+          }
+          const config = configReadResult.value;
           await EngineUtils.refreshNoteLinksAndAnchors({
             note: ent.note,
             engine: this,
-            config: DConfig.readConfigSync(this.wsRoot),
+            config,
           });
           this.store.updateNote(ent.note);
         }
@@ -715,9 +783,18 @@ export class DendronEngineV2 implements DEngine {
           status: ERROR_STATUS.INVALID_STATE,
           message: `${opts.id} does not exist`,
         });
+      const configReadResult = await ConfigService.instance().readConfig(
+        URI.file(this.wsRoot)
+      );
+      if (configReadResult.isErr()) {
+        return {
+          error: configReadResult.error,
+        };
+      }
+      const config = configReadResult.value;
       const blocks = await RemarkUtils.extractBlocks({
         note,
-        config: DConfig.readConfigSync(this.wsRoot, true),
+        config,
       });
       if (opts.filterByAnchorType) {
         _.remove(
@@ -754,7 +831,16 @@ export class DendronEngineV2 implements DEngine {
           ),
         };
       });
-      const config = DConfig.readConfigSync(this.wsRoot, true);
+      const configReadResult = await ConfigService.instance().readConfig(
+        URI.file(this.wsRoot)
+      );
+      if (configReadResult.isErr()) {
+        return {
+          error: configReadResult.error,
+          data: {},
+        };
+      }
+      const config = configReadResult.value;
       const {
         allDecorations: decorations,
         allDiagnostics: diagnostics,

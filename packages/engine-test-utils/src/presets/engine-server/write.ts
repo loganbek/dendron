@@ -490,7 +490,7 @@ const NOTES = {
       originalQS: "bar",
       vault,
     });
-    const note = resp.data![0];
+    const note = resp[0];
 
     return [
       {
@@ -843,7 +843,7 @@ const NOTES_MULTI = {
       originalQS: "bar",
       vault,
     });
-    const note = resp.data![0];
+    const note = resp[0];
 
     return [
       {
@@ -860,9 +860,8 @@ const NOTES_MULTI = {
     ];
   }),
   NEW_DOMAIN_WITH_FULL_PATH_VAULT: new TestPresetEntryV4(
-    async ({ wsRoot, vaults, engine }) => {
+    async ({ vaults, engine }) => {
       const vault = { ...vaults[1] };
-      vault.fsPath = path.join(wsRoot, vault.fsPath);
       const noteNew = NoteUtils.create({
         id: "bar",
         fname: "bar",
@@ -877,7 +876,7 @@ const NOTES_MULTI = {
         originalQS: "bar",
         vault,
       });
-      const note = resp.data![0];
+      const note = resp[0];
 
       return [
         {
@@ -1049,4 +1048,5 @@ export const ENGINE_WRITE_PRESETS = {
 };
 export const ENGINE_WRITE_PRESETS_MULTI = {
   NOTES: NOTES_MULTI,
+  SCHEMAS: {},
 };

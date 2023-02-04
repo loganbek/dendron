@@ -6,9 +6,9 @@ import {
   SeedCommands,
   SeedConfig,
 } from "@dendronhq/common-all";
-import { DConfig, tmpDir } from "@dendronhq/common-server";
+import { tmpDir } from "@dendronhq/common-server";
 import { SeedCLICommand, SeedCLICommandOpts } from "@dendronhq/dendron-cli";
-import { SeedInitMode } from "@dendronhq/engine-server";
+import { SeedInitMode, WorkspaceService } from "@dendronhq/engine-server";
 import os from "os";
 import path from "path";
 import { runEngineTestV5 } from "../../../engine";
@@ -271,7 +271,10 @@ runTest("init", () => {
             },
             expect
           );
-          expect(DConfig.getOrCreate(wsRoot).seeds).toEqual(undefined);
+          expect(
+            (await WorkspaceService.getOrCreateConfig(wsRoot))._unsafeUnwrap()
+              .workspace.seeds
+          ).toEqual(undefined);
         },
         {
           expect,
@@ -314,7 +317,10 @@ runTest("init", () => {
             fpath: path.join(wsRoot, "dendron.yml"),
             snapshot: true,
           });
-          expect(DConfig.getOrCreate(wsRoot).seeds).toEqual(undefined);
+          expect(
+            (await WorkspaceService.getOrCreateConfig(wsRoot))._unsafeUnwrap()
+              .workspace.seeds
+          ).toEqual(undefined);
         },
         {
           expect,

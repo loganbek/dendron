@@ -1,10 +1,11 @@
 import {
   DendronError,
-  IntermediateDendronConfig,
+  DendronConfig,
   RespV3,
+  ConfigService,
   WorkspaceRequest,
+  URI,
 } from "@dendronhq/common-all";
-import { DConfig } from "@dendronhq/common-server";
 import { MemoryStore } from "../store/memoryStore";
 import { getWSEngine } from "../utils";
 
@@ -18,14 +19,18 @@ export class ConfigController {
     return ConfigController.singleton;
   }
 
-  async get({
-    ws,
-  }: WorkspaceRequest): Promise<RespV3<IntermediateDendronConfig>> {
+  async get({ ws }: WorkspaceRequest): Promise<RespV3<DendronConfig>> {
     const engine = ws
       ? await getWSEngine({ ws })
       : MemoryStore.instance().getEngine();
     try {
-      return { data: DConfig.readConfigSync(engine.wsRoot) };
+      const configReadResult = await ConfigService.instance().readConfig(
+        URI.file(engine.wsRoot)
+      );
+      if (configReadResult.isErr()) {
+        throw configReadResult.error;
+      }
+      return { data: configReadResult.value };
     } catch (err) {
       return {
         error: new DendronError({ message: JSON.stringify(err) }),

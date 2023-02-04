@@ -1,19 +1,19 @@
 import _ from "lodash";
 import { URI, Utils } from "vscode-uri";
-import { ERROR_SEVERITY, ERROR_STATUS } from "../constants";
+import { ERROR_SEVERITY, ERROR_STATUS, StatusCodes } from "../constants";
 import { NoteUtils } from "../dnode";
-import { DendronError } from "../error";
+import { DendronError, IDendronError } from "../error";
 import {
-  Disposable,
   DNoteLoc,
   NoteProps,
   NotePropsMeta,
+  QueryNotesOpts,
   RespV3,
   WriteNoteMetaOpts,
   WriteNoteOpts,
 } from "../types";
 import { FindNoteOpts } from "../types/FindNoteOpts";
-import { genHash, isNotUndefined } from "../utils";
+import { genHash, isNotUndefined, ResultAsync } from "../utils";
 import { VaultUtils } from "../vault";
 import { IDataStore } from "./IDataStore";
 import { IFileStore } from "./IFileStore";
@@ -22,7 +22,7 @@ import { INoteStore } from "./INoteStore";
 /**
  * Responsible for storing NoteProps non-metadata and NoteProps metadata
  */
-export class NoteStore implements Disposable, INoteStore<string> {
+export class NoteStore implements INoteStore<string> {
   private _fileStore: IFileStore;
   private _metadataStore: IDataStore<string, NotePropsMeta>;
   private _wsRoot: URI;
@@ -37,7 +37,9 @@ export class NoteStore implements Disposable, INoteStore<string> {
     this._wsRoot = wsRoot;
   }
 
-  dispose() {}
+  dispose() {
+    this._metadataStore.dispose();
+  }
 
   /**
    * See {@link INoteStore.get}
@@ -47,18 +49,33 @@ export class NoteStore implements Disposable, INoteStore<string> {
     if (metadata.error) {
       return { error: metadata.error };
     }
-
     // If note is a stub, return stub note
     if (metadata.data.stub) {
       return {
         data: { ...metadata.data, body: "" },
       };
     }
+
+    // vault.fsPath that comes from local overrides can be absolute paths (e.g. if scope is global).
+    // need to slice the absolute portion off to correctly resolve.
+    // if a relative path comes in, this will do nothing and work as intended
+    const processedVault = metadata.data.vault.fsPath.startsWith(
+      this._wsRoot.fsPath
+    )
+      ? {
+          ...metadata.data.vault,
+          fsPath: metadata.data.vault.fsPath.slice(this._wsRoot.fsPath.length),
+        }
+      : metadata.data.vault;
+
     const uri = Utils.joinPath(
       this._wsRoot,
-      VaultUtils.getRelPath(metadata.data.vault),
+      VaultUtils.getRelPath({
+        ...processedVault,
+      }),
       metadata.data.fname + ".md"
     );
+
     const nonMetadata = await this._fileStore.read(uri);
     if (nonMetadata.error) {
       return { error: nonMetadata.error };
@@ -69,11 +86,9 @@ export class NoteStore implements Disposable, INoteStore<string> {
     if (capture) {
       const offset = capture[0].length;
       const body = nonMetadata.data.slice(offset + 1);
-      // add `contentHash` to this signature because its not saved with metadata
       const note = {
         ...metadata.data,
         body,
-        contentHash: genHash(nonMetadata.data),
       };
       return { data: note };
     } else {
@@ -137,7 +152,12 @@ export class NoteStore implements Disposable, INoteStore<string> {
    */
   async write(opts: WriteNoteOpts<string>): Promise<RespV3<string>> {
     const { key, note } = opts;
-    const noteMeta: NotePropsMeta = _.omit(note, ["body", "contentHash"]);
+    const notePropsMeta: NotePropsMeta = _.omit(note, ["body"]);
+    const content = NoteUtils.serialize(note);
+    const noteMeta = {
+      ...notePropsMeta,
+      contentHash: genHash(content),
+    };
     const metaResp = await this.writeMetadata({ key, noteMeta });
     if (metaResp.error) {
       return { error: metaResp.error };
@@ -150,7 +170,6 @@ export class NoteStore implements Disposable, INoteStore<string> {
         VaultUtils.getRelPath(note.vault),
         note.fname + ".md"
       );
-      const content = NoteUtils.serialize(note, { excludeStub: true });
       const writeResp = await this._fileStore.write(uri, content);
       if (writeResp.error) {
         return { error: writeResp.error };
@@ -247,5 +266,32 @@ export class NoteStore implements Disposable, INoteStore<string> {
     // TODO: implement
     const test = oldLoc.fname + newLoc.fname;
     return { data: test };
+  }
+
+  /**
+   * See {@link INoteStore.query}
+   */
+  query(
+    opts: QueryNotesOpts
+  ): ResultAsync<NoteProps[], IDendronError<StatusCodes | undefined>> {
+    const result = this._metadataStore
+      .query(opts)
+      .map((items) => {
+        return this.bulkGet(items.map((ent) => ent.id));
+      })
+      .map((responses) =>
+        responses.map((resp) => resp.data).filter(isNotUndefined)
+      );
+
+    return result;
+  }
+
+  /**
+   * See {@link INoteStore.queryMetadata}
+   */
+  queryMetadata(
+    opts: QueryNotesOpts
+  ): ResultAsync<NotePropsMeta[], IDendronError<StatusCodes | undefined>> {
+    return this._metadataStore.query(opts);
   }
 }

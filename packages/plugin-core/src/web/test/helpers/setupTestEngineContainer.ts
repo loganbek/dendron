@@ -11,6 +11,9 @@ import {
   NotePropsMeta,
   NoteStore,
   NoteUtils,
+  FuseEngine,
+  DendronConfig,
+  DendronPublishingConfig,
 } from "@dendronhq/common-all";
 import { container, Lifecycle } from "tsyringe";
 import { ILookupProvider } from "../../commands/lookup/ILookupProvider";
@@ -36,6 +39,11 @@ export async function setupTestEngineContainer() {
   const vaults = await getVaults();
 
   await setupHierarchyForLookupTests(vaults, wsRoot);
+  const noteMetadataStore = new NoteMetadataStore(
+    new FuseEngine({
+      fuzzThreshold: 0.2,
+    })
+  );
 
   container.register<EngineEventEmitter>("EngineEventEmitter", {
     useToken: "ReducedDEngine",
@@ -59,13 +67,9 @@ export async function setupTestEngineContainer() {
     useClass: VSCodeFileStore,
   });
 
-  container.register<IDataStore<string, NotePropsMeta>>(
-    "IDataStore",
-    {
-      useClass: NoteMetadataStore,
-    },
-    { lifecycle: Lifecycle.Singleton }
-  );
+  container.register<IDataStore<string, NotePropsMeta>>("IDataStore", {
+    useValue: noteMetadataStore,
+  });
 
   container.register("wsRoot", { useValue: wsRoot });
   container.register("vaults", { useValue: vaults });
@@ -85,6 +89,11 @@ export async function setupTestEngineContainer() {
 
   container.register<ITreeViewConfig>("ITreeViewConfig", {
     useClass: TreeViewDummyConfig,
+  });
+
+  const config = getConfig();
+  container.register<DendronConfig>("DendronConfig", {
+    useValue: config as DendronConfig,
   });
 }
 
@@ -148,7 +157,7 @@ type CreateNoteOptsV4 = {
   stub?: boolean;
 };
 
-async function createNote(opts: CreateNoteOptsV4) {
+export async function createNote(opts: CreateNoteOptsV4) {
   const {
     fname,
     vault,
@@ -182,4 +191,38 @@ async function createNote(opts: CreateNoteOptsV4) {
     await note2File({ note, vault, wsRoot });
   }
   return note;
+}
+
+export function getConfig(): DendronConfig {
+  const pubConfig: DendronPublishingConfig = {
+    copyAssets: false,
+    siteHierarchies: [],
+    enableSiteLastModified: false,
+    siteRootDir: "",
+    enableFrontmatterTags: false,
+    enableHashesForFMTags: false,
+    writeStubs: false,
+    seo: {
+      title: undefined,
+      description: undefined,
+      author: undefined,
+      twitter: undefined,
+      image: undefined,
+    },
+    github: {
+      cname: undefined,
+      enableEditLink: false,
+      editLinkText: undefined,
+      editBranch: undefined,
+      editViewMode: undefined,
+      editRepository: undefined,
+    },
+    enablePrettyLinks: false,
+  };
+
+  const config: DendronConfig = {
+    version: 5,
+    publishing: pubConfig,
+  } as DendronConfig;
+  return config;
 }

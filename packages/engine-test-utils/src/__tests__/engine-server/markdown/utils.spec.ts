@@ -1,7 +1,9 @@
 import {
+  ConfigService,
   ConfigUtils,
   NoteDictsUtils,
   NoteProps,
+  URI,
   WorkspaceOpts,
 } from "@dendronhq/common-all";
 import {
@@ -9,7 +11,6 @@ import {
   NoteTestUtilsV4,
   TestPresetEntryV4,
 } from "@dendronhq/common-test-utils";
-import { DConfig } from "@dendronhq/common-server";
 import {
   DendronASTDest,
   MDUtilsV5,
@@ -56,7 +57,7 @@ async function createProc(
   opts: Parameters<TestPresetEntryV4["testFunc"]>[0],
   procOverride?: Partial<Parameters<typeof MDUtilsV5.procRemarkFull>[0]>
 ) {
-  const { engine, vaults, wsRoot, extra } = opts;
+  const { engine, vaults, extra, wsRoot } = opts;
 
   const procData = _.defaults(procOverride, {
     noteToRender: (await engine.getNote("foo")).data!,
@@ -66,7 +67,9 @@ async function createProc(
     config:
       procOverride && procOverride.config
         ? procOverride.config
-        : DConfig.readConfigSync(wsRoot),
+        : (
+            await ConfigService.instance().readConfig(URI.file(wsRoot))
+          )._unsafeUnwrap(),
   });
   if (procData.dest === DendronASTDest.HTML) {
     return MDUtilsV5.procRehypeFull(procData);
@@ -360,10 +363,21 @@ const WITH_TITLE_FOR_LINK = createProcTests({
       (await opts.engine.getNote("foo.ch1")).data!,
     ]);
 
+    const defaultConfig = ConfigUtils.genDefaultConfig();
     const proc = await createProc(opts, {
       noteToRender,
       noteCacheForRenderDict,
-      config: { ...ConfigUtils.genDefaultConfig(), useNoteTitleForLink: true },
+      config: {
+        ...defaultConfig,
+        publishing: {
+          ...defaultConfig.publishing,
+          enableNoteTitleForLink: true,
+        },
+        preview: {
+          ...defaultConfig.preview,
+          enableNoteTitleForLink: true,
+        },
+      },
     });
     const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
     return readAndProcessFile({ npath, proc });
@@ -400,10 +414,21 @@ const WITH_TITLE_FOR_LINK_X_VAULT = createProcTests({
       (await opts.engine.getNote("bar")).data!,
     ]);
 
+    const defaultConfig = ConfigUtils.genDefaultConfig();
     const proc = await createProc(opts, {
       noteToRender,
       noteCacheForRenderDict,
-      config: { ...ConfigUtils.genDefaultConfig(), useNoteTitleForLink: true },
+      config: {
+        ...defaultConfig,
+        publishing: {
+          ...defaultConfig.publishing,
+          enableNoteTitleForLink: true,
+        },
+        preview: {
+          ...defaultConfig.preview,
+          enableNoteTitleForLink: true,
+        },
+      },
     });
     const npath = path.join(opts.wsRoot, opts.vaults[0].fsPath, "foo.md");
     return readAndProcessFile({ npath, proc });

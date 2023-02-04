@@ -26,18 +26,20 @@ import {
   stringifyError,
   string2Note,
   globMatch,
-  IntermediateDendronConfig,
+  DendronConfig,
   asyncLoopOneAtATime,
   SchemaModuleDict,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
-import { DConfig, DLogger, vault2Path } from "@dendronhq/common-server";
+import { DLogger, vault2Path } from "@dendronhq/common-server";
 import fs from "fs-extra";
 import _ from "lodash";
 import path from "path";
 import { createCacheEntry, EngineUtils } from "../../utils";
 import { ParserBase } from "./parseBase";
 import { NotesFileSystemCache } from "../../cache/notesFileSystemCache";
-import { SQLiteMetadataStore } from "../SQLiteMetadataStore";
+import { SQLiteMetadataStore } from "../PrismaSQLiteMetadataStore";
 
 export type FileMeta = {
   // file name: eg. foo.md, name = foo
@@ -109,7 +111,13 @@ export class NoteParser extends ParserBase {
     // Keep track of which notes in cache no longer exist
     const unseenKeys = this.cache.getCacheEntryKeys();
     const errors: IDendronError<any>[] = [];
-    const config = DConfig.readConfigSync(wsRoot);
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
 
     // get root note
     if (_.isUndefined(fileMetaDict[1])) {
@@ -337,7 +345,7 @@ export class NoteParser extends ParserBase {
     addParent: boolean;
     createStubs?: boolean;
     vault: DVault;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     errors: IDendronError[];
   }): Promise<{
     changeEntries: NoteChangeEntry[];
@@ -419,7 +427,7 @@ export class NoteParser extends ParserBase {
     fpath: string;
     vault: DVault;
     toLowercase?: boolean;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     errors: IDendronError[];
   }): Promise<{
     note: NoteProps;

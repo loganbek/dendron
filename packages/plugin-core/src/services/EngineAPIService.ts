@@ -4,6 +4,7 @@ import {
   BulkGetNoteResp,
   BulkWriteNotesOpts,
   BulkWriteNotesResp,
+  ConfigService,
   DeleteNoteResp,
   DendronAPI,
   DEngineClient,
@@ -28,9 +29,8 @@ import {
   GetSchemaResp,
   NoteChangeEntry,
   NoteProps,
-  NotePropsByFnameDict,
-  NotePropsByIdDict,
   NotePropsMeta,
+  QueryNotesMetaResp,
   QueryNotesOpts,
   QueryNotesResp,
   QuerySchemaResp,
@@ -39,6 +39,7 @@ import {
   RenderNoteOpts,
   RenderNoteResp,
   SchemaModuleProps,
+  URI,
   WriteNoteResp,
   WriteSchemaResp,
 } from "@dendronhq/common-all";
@@ -54,7 +55,7 @@ export class EngineAPIService
   private _engineEventEmitter: EngineEventEmitter;
   private _trustedWorkspace: boolean = true;
 
-  static createEngine({
+  static async createEngine({
     port,
     enableWorkspaceTrust,
     vaults,
@@ -64,7 +65,7 @@ export class EngineAPIService
     enableWorkspaceTrust?: boolean | undefined;
     vaults: DVault[];
     wsRoot: string;
-  }): EngineAPIService {
+  }): Promise<EngineAPIService> {
     const history = HistoryService.instance();
 
     const api = new DendronAPI({
@@ -74,11 +75,20 @@ export class EngineAPIService
       apiPath: "api",
     });
 
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
+
     const newClientBase = new DendronEngineClient({
       api,
       vaults,
       ws: wsRoot,
       history,
+      config,
     });
 
     const newSvc = new EngineAPIService({
@@ -116,28 +126,6 @@ export class EngineAPIService
 
   set trustedWorkspace(value: boolean) {
     this._trustedWorkspace = value;
-  }
-
-  /**
-   * @deprecated
-   * For accessing a specific note by id, see {@link EngineAPIService.getNote}
-   * If you need all notes, avoid modifying any note as this will cause unintended changes on the store side
-   */
-  public get notes(): NotePropsByIdDict {
-    return this._internalEngine.notes;
-  }
-  public set notes(arg: NotePropsByIdDict) {
-    this._internalEngine.notes = arg;
-  }
-
-  /**
-   * @deprecated see {@link EngineAPIService.findNotes}
-   */
-  public get noteFnames(): NotePropsByFnameDict {
-    return this._internalEngine.noteFnames;
-  }
-  public set noteFnames(arg: NotePropsByFnameDict) {
-    this._internalEngine.noteFnames = arg;
   }
 
   public get wsRoot(): string {
@@ -267,16 +255,8 @@ export class EngineAPIService
     return this._internalEngine.queryNotes(opts);
   }
 
-  queryNotesSync({
-    qs,
-    originalQS,
-    vault,
-  }: {
-    qs: string;
-    originalQS: string;
-    vault?: DVault | undefined;
-  }): QueryNotesResp {
-    return this._internalEngine.queryNotesSync({ qs, originalQS, vault });
+  queryNotesMeta(opts: QueryNotesOpts): Promise<QueryNotesMetaResp> {
+    return this._internalEngine.queryNotesMeta(opts);
   }
 
   renameNote(opts: RenameNoteOpts): Promise<RenameNoteResp> {

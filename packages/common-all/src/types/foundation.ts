@@ -226,7 +226,7 @@ export type SchemaTemplate = {
   type: "snippet" | "note";
 };
 
-export type SchemaProps = DNodeProps<SchemaData>;
+export type SchemaProps = Omit<DNodeProps<SchemaData>, "body">;
 /**
  * Interface for a Dendron Note
  */
@@ -235,7 +235,7 @@ export type NoteProps = DNodeProps<any, any>;
 /**
  * Dendron note metadata
  */
-export type NotePropsMeta = Omit<NoteProps, "body" | "contentHash">;
+export type NotePropsMeta = Omit<NoteProps, "body">;
 
 /**
  * Dendron note with optional custom props

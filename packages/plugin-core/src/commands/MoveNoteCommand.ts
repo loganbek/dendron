@@ -127,7 +127,7 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
     if (vault) {
       lookupCreateOpts.buttons = [];
     }
-    const lc = extension.lookupControllerFactory.create(lookupCreateOpts);
+    const lc = await extension.lookupControllerFactory.create(lookupCreateOpts);
 
     const provider = extension.noteLookupProviderFactory.create("move", {
       allowNewNote: true,
@@ -215,10 +215,13 @@ export class MoveNoteCommand extends BasicCommand<CommandOpts, CommandOutput> {
         items = [];
       }
     } else {
-      const notes = data.selectedItems.map(
-        (item): NoteProps => _.omit(item, ["label", "detail", "alwaysShow"])
-      );
-      items = notes;
+      const noteIds = data.selectedItems.map((item) => item.id);
+      const resp = await engine.bulkGetNotes(noteIds);
+      if (resp.error) {
+        this.L.error({ ctx, error: resp.error });
+        return;
+      }
+      items = resp.data;
     }
 
     const basicStats = StatisticsUtils.getBasicStatsFromNotes(items);

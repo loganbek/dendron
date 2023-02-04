@@ -1,9 +1,17 @@
-import { SchemaModuleProps, RespV3, WriteSchemaOpts } from "../types";
+import { ResultAsync } from "neverthrow";
+import { IDendronError } from "../error";
+import {
+  SchemaModuleProps,
+  RespV3,
+  WriteSchemaOpts,
+  Disposable,
+  QuerySchemaOpts,
+} from "../types";
 
 /**
  * Interface responsible for interacting with SchemaModuleProps storage layer
  */
-export interface ISchemaStore<K> {
+export interface ISchemaStore<K> extends Disposable {
   /**
    * Get SchemaModuleProps metadata by key.
    * Unlike {@link ISchemaStore.get}, this retrieves SchemaModuleProps from the metadata store.
@@ -66,4 +74,14 @@ export interface ISchemaStore<K> {
    * @return original key
    */
   deleteMetadata(key: K): Promise<RespV3<string>>;
+
+  /**
+   * Query SchemaModuleProps metadata by criteria.
+   *
+   * @param opts: SchemaModuleProps criteria
+   * @return List of SchemaModuleProps metadata that matches criteria
+   */
+  queryMetadata(
+    opts: QuerySchemaOpts
+  ): ResultAsync<SchemaModuleProps[], IDendronError>;
 }

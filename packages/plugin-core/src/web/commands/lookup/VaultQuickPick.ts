@@ -58,7 +58,7 @@ export class VaultQuickPick {
    * @param
    * @returns
    */
-  private async getVaultRecommendations({
+  async getVaultRecommendations({
     vault,
     vaults,
     fname,
@@ -67,7 +67,6 @@ export class VaultQuickPick {
     vaults: DVault[];
     fname: string;
   }): Promise<VaultPickerItem[]> {
-    // TODO: Filter out any vaults where a note with that fname already exists.
     let vaultSuggestions: VaultPickerItem[] = [];
 
     // Only 1 vault, no other options to choose from:
@@ -77,10 +76,9 @@ export class VaultQuickPick {
 
     const domain = fname.split(".").slice(0, -1);
     const newQs = domain.join(".");
-    const queryResponse = await this._engine.queryNotes({
+    const queryResponse = await this._engine.queryNotesMeta({
       qs: newQs,
       originalQS: newQs,
-      createIfNew: false,
     });
 
     // Sort Alphabetically by the Path Name
@@ -90,19 +88,17 @@ export class VaultQuickPick {
     let allVaults = vaults.sort(sortByPathNameFn);
 
     const vaultsWithMatchingHierarchy: VaultPickerItem[] | undefined =
-      queryResponse.data
-        ? queryResponse.data
-            .filter((value) => value.fname === newQs)
-            .map((value) => value.vault)
-            .sort(sortByPathNameFn)
-            .map((value) => {
-              return {
-                vault: value,
-                detail: this.HIERARCHY_MATCH_DETAIL,
-                label: VaultUtils.getName(value),
-              };
-            })
-        : undefined;
+      queryResponse
+        .filter((value) => value.fname === newQs)
+        .map((value) => value.vault)
+        .sort(sortByPathNameFn)
+        .map((value) => {
+          return {
+            vault: value,
+            detail: this.HIERARCHY_MATCH_DETAIL,
+            label: VaultUtils.getName(value),
+          };
+        });
 
     if (!vaultsWithMatchingHierarchy) {
       // Suggest current vault context as top suggestion
@@ -175,7 +171,6 @@ export class VaultQuickPick {
       allVaults = _.filter(allVaults, (v) => {
         return !_.isEqual(v, vault);
       });
-
       allVaults.forEach((wsVault) => {
         vaultSuggestions.push({
           vault: wsVault,
@@ -183,11 +178,21 @@ export class VaultQuickPick {
         });
       });
     }
+    // Filter out any vaults where a note with that fname already exists.
+    const vaultsWithMatchingFile = new Set(
+      (await this._engine.findNotesMeta({ fname })).map((n) => n.vault.fsPath)
+    );
+    if (vaultsWithMatchingFile.size > 0) {
+      // Available vaults are vaults that do not have the desired file name.
+      vaultSuggestions = vaultSuggestions.filter(
+        (v) => !vaultsWithMatchingFile.has(v.vault.fsPath)
+      );
+    }
 
     return vaultSuggestions;
   }
 
-  private async promptVault(
+  async promptVault(
     pickerItems: VaultPickerItem[]
   ): Promise<DVault | undefined> {
     const items = pickerItems.map((ent) => ({

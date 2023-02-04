@@ -9,6 +9,7 @@ import { tmpDir } from "@dendronhq/common-server";
 import { expect } from "../testUtilsv2";
 import { DoctorUtils } from "../../components/doctor/utils";
 import { VaultUtils } from "@dendronhq/common-all";
+import { NoteTestUtilsV4 } from "@dendronhq/common-test-utils";
 
 suite("Duplicate note detection", function () {
   describeSingleWS(
@@ -18,7 +19,9 @@ suite("Duplicate note detection", function () {
     },
     () => {
       test("THEN duplicate note is detected", async () => {
-        const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { wsRoot } = ws;
+        const vaults = await ws.vaults;
         const vaultPath = VaultUtils.getRelPath(vaults[0]);
         const barPath = path.join(wsRoot, vaultPath, "bar.md");
         const dupeNotePath = path.join(wsRoot, vaultPath, "bar-dupe.md");
@@ -51,7 +54,9 @@ suite("Duplicate note detection", function () {
     },
     () => {
       test("THEN duplicate is not detected", async () => {
-        const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { wsRoot } = ws;
+        const vaults = await ws.vaults;
         const vaultPath = VaultUtils.getRelPath(vaults[0]);
         const barPath = path.join(wsRoot, vaultPath, "bar.md");
         const barUri = vscode.Uri.file(barPath);
@@ -101,7 +106,9 @@ suite("Duplicate note detection", function () {
     },
     () => {
       test("THEN do nothing", async () => {
-        const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { wsRoot } = ws;
+        const vaults = await ws.vaults;
         const vaultPath = VaultUtils.getRelPath(vaults[0]);
         const noFMFilePath = path.join(wsRoot, vaultPath, "no-fm.md");
         const noFMFileUri = vscode.Uri.file(noFMFilePath);
@@ -114,6 +121,42 @@ suite("Duplicate note detection", function () {
 
         const resp = await DoctorUtils.findDuplicateNoteFromDocument(document!);
         expect(resp?.duplicate).toEqual(undefined);
+      });
+    }
+  );
+
+  describeSingleWS(
+    "GIVEN an open file that has been deleted",
+    {
+      postSetupHook: ENGINE_HOOKS.setupEmpty,
+    },
+    () => {
+      test("THEN do nothing", async () => {
+        const ws = ExtensionProvider.getDWorkspace();
+        const { engine, wsRoot } = ws;
+        const vaults = await ws.vaults;
+
+        await NoteTestUtilsV4.createNoteWithEngine({
+          fname: "deleted",
+          vault: vaults[0],
+          wsRoot,
+          body: "note will be deleted",
+          engine,
+        });
+
+        const vaultPath = VaultUtils.getRelPath(vaults[0]);
+        const deletedFilePath = path.join(wsRoot, vaultPath, "deleted.md");
+        const deletedFileUri = vscode.Uri.file(deletedFilePath);
+        await VSCodeUtils.openFileInEditor(deletedFileUri);
+
+        fs.unlinkSync(deletedFilePath);
+
+        await VSCodeUtils.openFileInEditor(deletedFileUri);
+        const editor = VSCodeUtils.getActiveTextEditor();
+        const document = editor?.document;
+
+        const resp = await DoctorUtils.findDuplicateNoteFromDocument(document!);
+        expect(resp).toEqual(undefined);
       });
     }
   );

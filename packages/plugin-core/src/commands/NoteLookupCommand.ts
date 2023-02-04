@@ -12,7 +12,7 @@ import {
   LookupSelectionType,
   LookupSelectionTypeEnum,
   NoteProps,
-  NoteQuickInput,
+  NoteQuickInputV2,
   NoteUtils,
   VSCodeEvents,
 } from "@dendronhq/common-all";
@@ -40,6 +40,7 @@ import {
   LookupSplitType,
   LookupSplitTypeEnum,
 } from "../components/lookup/ButtonTypes";
+import { CREATE_NEW_LABEL } from "../components/lookup/constants";
 import { ILookupControllerV3 } from "../components/lookup/LookupControllerV3Interface";
 import {
   ILookupProviderV3,
@@ -102,7 +103,7 @@ type CommandGatherOutput = {
  * Passed into execute command
  */
 export type CommandOpts = {
-  selectedItems: readonly NoteQuickInput[];
+  selectedItems: readonly NoteQuickInputV2[];
   /** source of the command. Added for contextual UI analytics. */
   source?: string;
 } & CommandGatherOutput;
@@ -195,7 +196,7 @@ export class NoteLookupCommand extends BaseCommand<
     const extension = ExtensionProvider.getExtension();
     const start = process.hrtime();
     const ws = extension.getDWorkspace();
-    const lookupConfig = ConfigUtils.getCommands(ws.config).lookup;
+    const lookupConfig = ConfigUtils.getCommands(await ws.config).lookup;
     const noteLookupConfig = lookupConfig.note;
     let selectionType;
     switch (noteLookupConfig.selectionMode) {
@@ -229,7 +230,7 @@ export class NoteLookupCommand extends BaseCommand<
         copts.vaultSelectionMode === VaultSelectionMode.alwaysPrompt;
     } else {
       vaultButtonPressed =
-        VaultSelectionModeConfigUtils.shouldAlwaysPromptVaultSelection();
+        await VaultSelectionModeConfigUtils.shouldAlwaysPromptVaultSelection();
     }
 
     const ctx = "NoteLookupCommand:gatherInput";
@@ -237,7 +238,7 @@ export class NoteLookupCommand extends BaseCommand<
     // initialize controller and provider
     const disableVaultSelection = !confirmVaultOnCreate;
     if (_.isUndefined(this._controller)) {
-      this._controller = extension.lookupControllerFactory.create({
+      this._controller = await extension.lookupControllerFactory.create({
         nodeType: "note",
         disableVaultSelection,
         vaultButtonPressed,
@@ -393,7 +394,7 @@ export class NoteLookupCommand extends BaseCommand<
   }: Pick<
     CommandOpts,
     "selectedItems" | "quickpick"
-  >): readonly NoteQuickInput[] {
+  >): readonly NoteQuickInputV2[] {
     const { canSelectMany } = quickpick;
     return canSelectMany ? selectedItems : selectedItems.slice(0, 1);
   }
@@ -411,8 +412,10 @@ export class NoteLookupCommand extends BaseCommand<
       const extension = ExtensionProvider.getExtension();
       const ws = extension.getDWorkspace();
 
-      const journalDateFormat = ConfigUtils.getJournal(ws.config).dateFormat;
-
+      const journalDateFormat = ConfigUtils.getJournal(
+        await ws.config
+      ).dateFormat;
+      const config = await ws.config;
       const out = await Promise.all(
         selected.map((item) => {
           // If we're in journal mode, then apply title and trait overrides
@@ -430,9 +433,7 @@ export class NoteLookupCommand extends BaseCommand<
             if (journalModifiedTitle) {
               item.title = journalModifiedTitle;
 
-              const journalTrait = new JournalNote(
-                ExtensionProvider.getDWorkspace().config
-              );
+              const journalTrait = new JournalNote(config);
               if (item.traits) {
                 item.traits.push(journalTrait.id);
               } else {
@@ -440,7 +441,7 @@ export class NoteLookupCommand extends BaseCommand<
               }
             }
           } else if (
-            ConfigUtils.getWorkspace(ws.config).enableFullHierarchyNoteTitle
+            ConfigUtils.getWorkspace(config).enableFullHierarchyNoteTitle
           ) {
             item.title = NoteUtils.genTitleFromFullFname(item.fname);
           }
@@ -480,7 +481,7 @@ export class NoteLookupCommand extends BaseCommand<
   }
 
   async acceptItem(
-    item: NoteQuickInput
+    item: NoteQuickInputV2
   ): Promise<OnDidAcceptReturn | undefined> {
     let result: Promise<OnDidAcceptReturn | undefined>;
     const start = process.hrtime();
@@ -512,11 +513,17 @@ export class NoteLookupCommand extends BaseCommand<
   }
 
   async acceptExistingItem(
-    item: NoteQuickInput
+    item: NoteQuickInputV2
   ): Promise<OnDidAcceptReturn | undefined> {
     const picker = this.controller.quickPick;
     const uri = node2Uri(item);
-    const originalNoteFromItem = PickerUtilsV2.noteQuickInputToNote(item);
+    const engine = ExtensionProvider.getEngine();
+    const resp = await engine.getNote(item.id);
+    if (resp.error) {
+      Logger.error({ error: resp.error });
+      return;
+    }
+    const originalNoteFromItem = resp.data;
     const originalNoteDeepCopy = _.cloneDeep(originalNoteFromItem);
 
     if (picker.selectionProcessFunc !== undefined) {
@@ -525,13 +532,12 @@ export class NoteLookupCommand extends BaseCommand<
       );
       if (processedNode !== undefined) {
         if (!_.isEqual(originalNoteFromItem, processedNode)) {
-          const engine = ExtensionProvider.getEngine();
           await engine.writeNote(processedNode);
         }
         return { uri, node: processedNode };
       }
     }
-    return { uri, node: item };
+    return { uri, node: originalNoteFromItem };
   }
 
   /**
@@ -541,12 +547,15 @@ export class NoteLookupCommand extends BaseCommand<
    * and applies schema if there is one that matches
    */
   async prepareStubItem(opts: {
-    item: NoteQuickInput;
+    item: NoteQuickInputV2;
     engine: IEngineAPIService;
   }): Promise<NoteProps> {
     const { item, engine } = opts;
 
-    const noteFromItem = PickerUtilsV2.noteQuickInputToNote(item);
+    const noteFromItem = {
+      ..._.omit(item, "label", "detail", "alwaysShow"),
+      body: "",
+    };
     const preparedNote = await NoteUtils.updateStubWithSchema({
       stubNote: noteFromItem,
       engine,
@@ -555,7 +564,7 @@ export class NoteLookupCommand extends BaseCommand<
   }
 
   async acceptNewItem(
-    item: NoteQuickInput
+    item: NoteQuickInputV2
   ): Promise<OnDidAcceptReturn | undefined> {
     const ctx = "acceptNewItem";
     const picker = this.controller.quickPick;
@@ -632,19 +641,18 @@ export class NoteLookupCommand extends BaseCommand<
   }
 
   async acceptNewWithTemplateItem(
-    item: NoteQuickInput
+    item: NoteQuickInputV2
   ): Promise<OnDidAcceptReturn | undefined> {
     const ctx = "acceptNewWithTemplateItem";
     const picker = this.controller.quickPick;
     const fname = this.getFNameForNewItem(item);
 
     const engine = ExtensionProvider.getEngine();
-    let nodeNew: NoteProps = item;
     const vault = await this.getVaultForNewNote({ fname, picker });
     if (vault === undefined) {
       return;
     }
-    nodeNew = NoteUtils.create({
+    let nodeNew: NoteProps = NoteUtils.create({
       fname,
       vault,
       title: item.title,
@@ -656,6 +664,12 @@ export class NoteLookupCommand extends BaseCommand<
         targetNote: nodeNew,
         engine,
       });
+    } else {
+      // template note is not selected. cancel note creation.
+      window.showInformationMessage(
+        `No template selected. Cancelling note creation.`
+      );
+      return;
     }
 
     // only enable selection 2 link
@@ -683,7 +697,7 @@ export class NoteLookupCommand extends BaseCommand<
    *
    * Added to quickly fix the journal names not being created properly.
    */
-  private getFNameForNewItem(item: NoteQuickInput) {
+  private getFNameForNewItem(item: NoteQuickInputV2) {
     if (this.isJournalButtonPressed()) {
       return PickerUtilsV2.getValue(this.controller.quickPick);
     } else {
@@ -708,7 +722,7 @@ export class NoteLookupCommand extends BaseCommand<
     // Try to get the default vault value.
     let vault: DVault | undefined = picker.vault
       ? picker.vault
-      : PickerUtilsV2.getVaultForOpenEditor();
+      : await PickerUtilsV2.getVaultForOpenEditor();
 
     // If our current context does not have vault or if our current context vault
     // already has a matching file name we want to ask the user for a different vault.
@@ -750,6 +764,14 @@ export class NoteLookupCommand extends BaseCommand<
       logger: this.L,
       providerId: "createNewWithTemplate",
     });
+
+    // this needs to be checked because note lookup provider
+    // assumes user selected `create new` when `selectionItems` is empty.
+    // without this, hitting enter when the template picker has nothing listed
+    // will result in note creation with an empty template applied.
+    if (templateNote && templateNote.id === CREATE_NEW_LABEL) {
+      return;
+    }
 
     return templateNote;
   }

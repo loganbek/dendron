@@ -2,11 +2,18 @@ import axios, { AxiosInstance } from "axios";
 import _ from "lodash";
 import * as querystring from "qs";
 import {
+  BulkGetNoteMetaResp,
+  BulkGetNoteResp,
   BulkWriteNotesOpts,
   DNodeProps,
   EngineDeleteOpts,
   EngineInfoResp,
   EngineWriteOptsV2,
+  FindNotesMetaResp,
+  GetNoteMetaResp,
+  GetNoteResp,
+  QueryNotesMetaResp,
+  QueryNotesOpts,
   RenameNoteOpts,
   SchemaModuleProps,
   WriteNoteResp,
@@ -23,7 +30,6 @@ import {
   GetDecorationsResp,
   GetNoteBlocksResp,
   GetSchemaResp,
-  IntermediateDendronConfig,
   QueryNotesResp,
   QuerySchemaResp,
   RenameNoteResp,
@@ -32,6 +38,7 @@ import {
   RespV3,
   VSRange,
   WriteSchemaResp,
+  DendronConfig,
 } from "./types";
 import { DVault } from "./types/DVault";
 import { FindNoteOpts } from "./types/FindNoteOpts";
@@ -105,6 +112,14 @@ export type WorkspaceSyncRequest = WorkspaceRequest;
 
 export type WorkspaceRequest = { ws: string };
 
+export type EngineGetNoteRequest = {
+  id: string;
+} & WorkspaceRequest;
+
+export type EngineBulkGetNoteRequest = {
+  ids: string[];
+} & WorkspaceRequest;
+
 export type EngineRenameNoteRequest = RenameNoteOpts & { ws: string };
 export type EngineWriteRequest = {
   node: DNodeProps;
@@ -119,9 +134,8 @@ export type EngineBulkAddRequest = {
 } & { ws: string };
 
 export type NoteQueryRequest = {
-  qs: string;
-  vault?: DVault;
-} & Partial<WorkspaceRequest>;
+  opts: QueryNotesOpts;
+} & { ws: string };
 
 export type GetNoteBlocksRequest = {
   id: string;
@@ -309,7 +323,7 @@ export class DendronAPI extends API {
     });
   }
 
-  configGet(req: WorkspaceRequest): Promise<RespV3<IntermediateDendronConfig>> {
+  configGet(req: WorkspaceRequest): Promise<RespV3<DendronConfig>> {
     return this._makeRequest({
       path: "config/get",
       method: "get",
@@ -374,6 +388,38 @@ export class DendronAPI extends API {
     });
   }
 
+  noteGet(req: EngineGetNoteRequest): Promise<GetNoteResp> {
+    return this._makeRequest({
+      path: "note/get",
+      method: "get",
+      qs: req,
+    });
+  }
+
+  noteGetMeta(req: EngineGetNoteRequest): Promise<GetNoteMetaResp> {
+    return this._makeRequest({
+      path: "note/getMeta",
+      method: "get",
+      qs: req,
+    });
+  }
+
+  noteBulkGet(req: EngineBulkGetNoteRequest): Promise<BulkGetNoteResp> {
+    return this._makeRequest({
+      path: "note/bulkGet",
+      method: "get",
+      qs: req,
+    });
+  }
+
+  noteBulkGetMeta(req: EngineBulkGetNoteRequest): Promise<BulkGetNoteMetaResp> {
+    return this._makeRequest({
+      path: "note/bulkGetMeta",
+      method: "get",
+      qs: req,
+    });
+  }
+
   noteFind(req: APIRequest<FindNoteOpts>): Promise<RespV3<FindNotesResp>> {
     return this._makeRequest({
       path: "note/find",
@@ -382,9 +428,27 @@ export class DendronAPI extends API {
     });
   }
 
-  noteQuery(req: NoteQueryRequest): Promise<QueryNotesResp> {
+  noteFindMeta(
+    req: APIRequest<FindNoteOpts>
+  ): Promise<RespV3<FindNotesMetaResp>> {
+    return this._makeRequest({
+      path: "note/findMeta",
+      method: "post",
+      body: req,
+    });
+  }
+
+  noteQuery(req: NoteQueryRequest): Promise<RespV3<QueryNotesResp>> {
     return this._makeRequest({
       path: "note/query",
+      method: "get",
+      qs: req,
+    });
+  }
+
+  noteQueryMeta(req: NoteQueryRequest): Promise<RespV3<QueryNotesMetaResp>> {
+    return this._makeRequest({
+      path: "note/queryMeta",
       method: "get",
       qs: req,
     });

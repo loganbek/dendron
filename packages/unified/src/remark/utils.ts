@@ -18,7 +18,7 @@ import {
   DNoteRefLinkRaw,
   DVault,
   getSlugger,
-  IntermediateDendronConfig,
+  DendronConfig,
   isBlockAnchor,
   isLineAnchor,
   isNotUndefined,
@@ -402,11 +402,11 @@ const getLinkCandidatesSync = ({
     const value = textNode.value as string;
 
     value.split(/\s+/).map((word) => {
-      const possibleCandidates = NoteDictsUtils.findByFname(
-        word,
+      const possibleCandidates = NoteDictsUtils.findByFname({
+        fname: word,
         noteDicts,
-        note.vault
-      )
+        vault: note.vault,
+      })
         // await engine.findNotesMeta({ fname: word, vault: note.vault })
         .filter((note) => note.stub !== true);
 
@@ -488,7 +488,7 @@ export class LinkUtils {
   }: {
     note: NoteProps;
     engine: ReducedDEngine;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     filter?: LinkFilter;
     type: "regular" | "candidate";
   }): Promise<DLink[]> {
@@ -530,7 +530,7 @@ export class LinkUtils {
     filter,
   }: {
     note: NoteProps;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     filter?: LinkFilter;
   }): DLink[] {
     const content = note.body;
@@ -861,7 +861,7 @@ export class LinkUtils {
   }: {
     note: NoteProps;
     engine: ReducedDEngine;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }) {
     const content = note.body;
 
@@ -898,7 +898,7 @@ export class LinkUtils {
   }: {
     note: NoteProps;
     noteDicts: NoteDicts;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }) {
     const content = note.body;
 
@@ -999,9 +999,12 @@ export class LinkUtils {
             vaultName: VaultUtils.getName(destNote.vault),
           },
           data: {
-            ...oldLink.data,
             // preserve the cross vault status or add it if necessary
             xvault: isXVault,
+            // if the link was originally a sameFile link,
+            // we need to flip this so the new link correctly
+            // renders as regular wikilink
+            sameFile: note.id === destNote.fname,
           },
         };
 
@@ -1419,7 +1422,7 @@ export class RemarkUtils {
     note: NoteProps,
     changes: NoteChangeEntry[],
     engine: DEngineClient,
-    dendronConfig: IntermediateDendronConfig
+    config: DendronConfig
   ) {
     const prevNote = { ...note };
     // eslint-disable-next-line func-names
@@ -1443,12 +1446,11 @@ export class RemarkUtils {
             await engine.findNotesMeta({ fname: linkNode.value, vault })
           )[0];
           if (existingNote) {
-            const publishingConfig =
-              ConfigUtils.getPublishingConfig(dendronConfig);
+            const publishingConfig = ConfigUtils.getPublishing(config);
             const urlRoot = publishingConfig.siteUrl || "";
             const { vault } = existingNote;
             linkNode.value = RemarkUtils.getNoteUrl({
-              config: dendronConfig,
+              config,
               note: existingNote,
               vault,
               urlRoot,
@@ -1605,7 +1607,7 @@ export class RemarkUtils {
     config,
   }: {
     note: NoteProps;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }): Promise<NoteBlock[]> {
     const proc = MDUtilsV5.procRemarkFull({
       noteToRender: note,
@@ -1738,7 +1740,7 @@ export class RemarkUtils {
 
   // Copied from WorkspaceUtils:
   static getNoteUrl(opts: {
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
     note: NotePropsMeta;
     vault: DVault;
     urlRoot?: string;

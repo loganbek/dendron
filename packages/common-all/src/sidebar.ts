@@ -1,5 +1,4 @@
 import _ from "lodash";
-import { z } from "zod";
 import type {
   NotePropsByIdDict,
   DuplicateNoteBehavior,
@@ -7,7 +6,7 @@ import type {
 } from "./types";
 import type { Option } from "./utils";
 import { PublishUtils, err, fromThrowable, Result } from "./utils";
-import { parse } from "./parse";
+import { z, parse } from "./parse";
 import type { IDendronError } from "./error";
 import { DendronError, assertUnreachable } from "./error";
 import { ERROR_STATUS } from "./constants";
@@ -349,14 +348,14 @@ export function processSidebar(
 
   return sidebarResult
     .andThen((sidebar) => Result.combine(sidebar.map(safeProcessItem)))
-    .map((x) => x.flat());
+    .map((x: any) => x.flat());
 }
 
 export function parseSidebarConfig(
   input: unknown
 ): Result<SidebarConfig, IDendronError> {
   if (Array.isArray(input)) {
-    const x = input.map((maybeSidebarItem) => {
+    const resultList = input.map((maybeSidebarItem) => {
       const { type } = maybeSidebarItem;
       switch (type) {
         case "note":
@@ -389,7 +388,8 @@ export function parseSidebarConfig(
           );
       }
     });
-    return Result.combine(x);
+    // @ts-ignore
+    return Result.combine(resultList);
   }
 
   return err(new DendronError({ message: "Sidebar object is not an array" }));

@@ -1,9 +1,10 @@
+import { ResultAsync } from "neverthrow";
 import { URI, Utils } from "vscode-uri";
-import { ERROR_SEVERITY, ERROR_STATUS } from "../constants";
+import { ERROR_SEVERITY, ERROR_STATUS, StatusCodes } from "../constants";
 import { SchemaUtils } from "../dnode";
-import { DendronError } from "../error";
+import { DendronError, IDendronError } from "../error";
 import {
-  Disposable,
+  QuerySchemaOpts,
   RespV3,
   SchemaModuleProps,
   WriteSchemaOpts,
@@ -13,7 +14,7 @@ import { IDataStore } from "./IDataStore";
 import { IFileStore } from "./IFileStore";
 import { ISchemaStore } from "./ISchemaStore";
 
-export class SchemaStore implements Disposable, ISchemaStore<string> {
+export class SchemaStore implements ISchemaStore<string> {
   private _fileStore: IFileStore;
   private _metadataStore: IDataStore<string, SchemaModuleProps>;
   private _wsRoot: URI;
@@ -28,7 +29,9 @@ export class SchemaStore implements Disposable, ISchemaStore<string> {
     this._wsRoot = wsRoot;
   }
 
-  dispose() {}
+  dispose() {
+    this._metadataStore.dispose();
+  }
 
   /**
    * See {@link ISchemaStore.getMetadata}
@@ -147,5 +150,14 @@ export class SchemaStore implements Disposable, ISchemaStore<string> {
     }
 
     return this._metadataStore.delete(key);
+  }
+
+  /**
+   * See {@link ISchemaStore.queryMetadata}
+   */
+  queryMetadata(
+    opts: QuerySchemaOpts
+  ): ResultAsync<SchemaModuleProps[], IDendronError<StatusCodes | undefined>> {
+    return this._metadataStore.query(opts);
   }
 }

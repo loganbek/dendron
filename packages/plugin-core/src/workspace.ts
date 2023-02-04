@@ -11,6 +11,8 @@ import {
   WorkspaceSettings,
   WorkspaceType,
   BacklinkPanelSortOrder,
+  DefaultMap,
+  DendronConfig,
 } from "@dendronhq/common-all";
 import { resolvePath } from "@dendronhq/common-server";
 import {
@@ -116,7 +118,7 @@ export function resolveRelToWSRoot(fpath: string): string {
 }
 
 /** Given file uri that is within a vault within the current workspace returns the vault. */
-export function getVaultFromUri(fileUri: Uri) {
+export async function getVaultFromUri(fileUri: Uri) {
   return WSUtilsV2.instance().getVaultFromUri(fileUri);
 }
 
@@ -147,6 +149,11 @@ export class DendronExtension implements IDendronExtension {
   public type: WorkspaceType;
   public workspaceImpl?: DWorkspaceV2;
   public wsUtils: IWSUtilsV2;
+  public noteRefCommentController: vscode.CommentController;
+  private _inlineNoteRefs: DefaultMap<
+    string,
+    Map<string, vscode.CommentThread>
+  > = new DefaultMap(() => new Map());
 
   static context(): vscode.ExtensionContext {
     return getExtension().context;
@@ -320,7 +327,8 @@ export class DendronExtension implements IDendronExtension {
     if (!this.isActive()) {
       return false;
     }
-    const { wsRoot, vaults } = this.getDWorkspace();
+    const { wsRoot } = this.getDWorkspace();
+    const vaults = await this.getDWorkspace().vaults;
     return WorkspaceUtils.isDendronNote({
       wsRoot,
       vaults,
@@ -380,6 +388,10 @@ export class DendronExtension implements IDendronExtension {
     this.lookupControllerFactory = new LookupControllerV3Factory(this);
     this.noteLookupProviderFactory = new NoteLookupProviderFactory(this);
     this.schemaLookupProviderFactory = new SchemaLookupProviderFactory(this);
+    this.noteRefCommentController = vscode.comments.createCommentController(
+      "noteRefs",
+      "Show note refs"
+    );
 
     const ctx = "DendronExtension";
     this.L.info({ ctx, msg: "initialized" });
@@ -397,6 +409,12 @@ export class DendronExtension implements IDendronExtension {
       });
     }
     return this.workspaceImpl;
+  }
+
+  getCommentThreadsState() {
+    return {
+      inlineNoteRefs: this._inlineNoteRefs,
+    };
   }
 
   /**
@@ -451,14 +469,15 @@ export class DendronExtension implements IDendronExtension {
   getWorkspaceSettingOrDefault({
     wsConfigKey,
     dendronConfigKey,
+    dendronConfig,
   }: {
     wsConfigKey: keyof DendronWorkspaceSettings;
     dendronConfigKey: string;
+    dendronConfig: DendronConfig;
   }) {
-    const config = getDWorkspace().config;
     // user already using new value
-    if (_.get(config, dendronConfigKey)) {
-      return _.get(config, dendronConfigKey);
+    if (_.get(dendronConfig, dendronConfigKey)) {
+      return _.get(dendronConfig, dendronConfigKey);
     }
     // migrate value from workspace setting. if not exist, migrate from new default
     const out = _.get(
@@ -531,7 +550,8 @@ export class DendronExtension implements IDendronExtension {
         );
 
         // backlinks
-        const backlinkTreeView = this.setupBacklinkTreeView();
+        const config = await ExtensionProvider.getDWorkspace().config;
+        const backlinkTreeView = this.setupBacklinkTreeView(config);
 
         // Tip of the Day
         const tipOfDayView = this.setupTipOfTheDayView();
@@ -559,13 +579,13 @@ export class DendronExtension implements IDendronExtension {
     );
   }
 
-  private setupBacklinkTreeView() {
+  private setupBacklinkTreeView(config: DendronConfig) {
     const ctx = "setupBacklinkTreeView";
     Logger.info({ ctx, msg: "init:backlinks" });
 
     const backlinksTreeDataProvider = new BacklinksTreeDataProvider(
       this.getEngine(),
-      this.getDWorkspace().config.dev?.enableLinkCandidates
+      config.dev?.enableLinkCandidates
     );
 
     const backlinkTreeView = vscode.window.createTreeView(
@@ -746,14 +766,16 @@ export class DendronExtension implements IDendronExtension {
     const ctx = "activateWorkspace";
     const stage = getStage();
     this.L.info({ ctx, stage, msg: "enter" });
-    const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+    const ws = ExtensionProvider.getDWorkspace();
+    const { wsRoot } = ws;
+    const vaults = await ws.vaults;
     if (!wsRoot) {
       throw new Error(`rootDir not set when activating Watcher`);
     }
 
     const windowWatcher = new WindowWatcher({
       extension: this,
-      previewProxy: PreviewPanelFactory.create(this),
+      previewProxy: PreviewPanelFactory.create(),
     });
 
     windowWatcher.activate();

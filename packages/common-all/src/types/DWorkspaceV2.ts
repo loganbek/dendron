@@ -1,7 +1,7 @@
 import { URI } from "vscode-uri";
 import { DEngineClient } from "./typesv2";
-import { IntermediateDendronConfig } from "./intermediateConfigs";
 import { DVault } from "./DVault";
+import { DendronConfig } from "./configs";
 
 export enum WorkspaceType {
   NATIVE = "NATIVE",
@@ -15,8 +15,8 @@ export type DWorkspaceV2 = {
    */
   wsRoot: string;
   type: WorkspaceType;
-  config: IntermediateDendronConfig;
-  vaults: DVault[];
+  config: PromiseLike<DendronConfig>;
+  vaults: PromiseLike<DVault[]>;
   engine: DEngineClient;
   /**
    * Where are assets stored (eg. tutorial workspace)

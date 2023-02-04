@@ -3,6 +3,93 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# 0.119.0 (2022-12-06)
+
+
+### Bug Fixes
+
+* preview not rendering ([208c9eb](https://github.com/dendronhq/dendron/commit/208c9eb74da28a180535603bd9ff54feb932e2ed))
+
+
+
+
+
+# 0.118.0 (2022-11-22)
+
+
+### Bug Fixes
+
+* **workspace:** rename note breaks noteref for user hierarchy ([#3782](https://github.com/dendronhq/dendron/issues/3782)) ([053b949](https://github.com/dendronhq/dendron/commit/053b9492cf1c4c88346210718b3a0c26bec43d05))
+
+
+
+
+
+# 0.117.0 (2022-11-08)
+
+**Note:** Version bump only for package @dendronhq/common-assets
+
+
+
+
+
+## [0.116.2](https://github.com/dendronhq/dendron/compare/v0.112.1...v0.116.2) (2022-10-26)
+
+
+
+# 0.116.0 (2022-10-25)
+
+
+### Bug Fixes
+
+* **publish:** display headings pleasantly when containing non-textonly content types  ([#3525](https://github.com/dendronhq/dendron/issues/3525)) ([2a0707d](https://github.com/dendronhq/dendron/commit/2a0707d5303f8d24e9c5f15244c25a843a1bd63d))
+
+
+
+
+
+## [0.116.1](https://github.com/dendronhq/dendron/compare/v0.112.1...v0.116.1) (2022-10-25)
+
+
+
+# 0.116.0 (2022-10-25)
+
+
+### Bug Fixes
+
+* **publish:** display headings pleasantly when containing non-textonly content types  ([#3525](https://github.com/dendronhq/dendron/issues/3525)) ([2a0707d](https://github.com/dendronhq/dendron/commit/2a0707d5303f8d24e9c5f15244c25a843a1bd63d))
+
+
+
+
+
+# 0.116.0 (2022-10-25)
+
+**Note:** Version bump only for package @dendronhq/common-assets
+
+
+
+
+
+## 0.115.1 (2022-10-13)
+
+
+### Bug Fixes
+
+* npm overrides for packages with vulnerabilities ([#3666](https://github.com/dendronhq/dendron/issues/3666)) ([84f3cb2](https://github.com/dendronhq/dendron/commit/84f3cb2af692516778142e003cad294b7c579b25))
+
+
+
+
+
+# 0.115.0 (2022-10-11)
+
+**Note:** Version bump only for package @dendronhq/common-assets
+
+
+
+
+
 # 0.114.0 (2022-09-27)
 
 

@@ -15,9 +15,7 @@ suite("GIVEN TogglePreview", function () {
   let cmd: TogglePreviewCommand;
 
   beforeEach(() => {
-    cmd = new TogglePreviewCommand(
-      PreviewPanelFactory.create(ExtensionProvider.getExtension())
-    );
+    cmd = new TogglePreviewCommand(PreviewPanelFactory.create());
   });
 
   // After each test, run Toggle Preview to close the preview panel
@@ -28,7 +26,9 @@ suite("GIVEN TogglePreview", function () {
   describeSingleWS("WHEN opening the preview from the command bar", {}, () => {
     let note: NoteProps;
     before(async () => {
-      const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+      const ws = ExtensionProvider.getDWorkspace();
+      const { engine, wsRoot } = ws;
+      const vaults = await ws.vaults;
       note = await NoteTestUtilsV4.createNoteWithEngine({
         engine,
         wsRoot,
@@ -51,7 +51,9 @@ suite("GIVEN TogglePreview", function () {
     () => {
       let note: NoteProps;
       before(async () => {
-        const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { engine, wsRoot } = ws;
+        const vaults = await ws.vaults;
         note = await NoteTestUtilsV4.createNoteWithEngine({
           engine,
           wsRoot,
@@ -85,7 +87,9 @@ suite("GIVEN TogglePreview", function () {
     () => {
       let note: NoteProps;
       before(async () => {
-        const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { engine, wsRoot } = ws;
+        const vaults = await ws.vaults;
         note = await NoteTestUtilsV4.createNoteWithEngine({
           engine,
           wsRoot,
@@ -155,7 +159,9 @@ suite("GIVEN TogglePreview", function () {
     () => {
       let note: NoteProps;
       before(async () => {
-        const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+        const ws = ExtensionProvider.getDWorkspace();
+        const { engine, wsRoot } = ws;
+        const vaults = await ws.vaults;
         await NoteTestUtilsV4.createNoteWithEngine({
           engine,
           wsRoot,
@@ -187,7 +193,9 @@ suite("GIVEN TogglePreview", function () {
   describeSingleWS("WHEN preview panel is already open", {}, () => {
     let note: NoteProps;
     before(async () => {
-      const { engine, wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+      const ws = ExtensionProvider.getDWorkspace();
+      const { engine, wsRoot } = ws;
+      const vaults = await ws.vaults;
       note = await NoteTestUtilsV4.createNoteWithEngine({
         engine,
         wsRoot,

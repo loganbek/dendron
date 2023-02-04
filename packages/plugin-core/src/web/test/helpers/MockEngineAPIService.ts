@@ -19,16 +19,26 @@ import {
   RespV3,
   WriteNoteResp,
   type ReducedDEngine,
+  FuseEngine,
+  RenderNoteOpts,
+  RenderNoteResp,
+  QueryNotesMetaResp,
 } from "@dendronhq/common-all";
 
 export class MockEngineAPIService implements ReducedDEngine {
   // private noteProps: NoteProps[];
 
   private store: NoteMetadataStore;
+  public wsRoot: string;
 
   constructor() {
     // this.noteProps = [];
-    this.store = new NoteMetadataStore();
+    this.store = new NoteMetadataStore(
+      new FuseEngine({
+        fuzzThreshold: 0.2,
+      })
+    );
+    this.wsRoot = "";
   }
 
   async init() {
@@ -114,13 +124,18 @@ export class MockEngineAPIService implements ReducedDEngine {
     throw new Error("Method not implemented.");
   }
   async queryNotes(_opts: QueryNotesOpts): Promise<QueryNotesResp> {
-    // throw new Error("Method not implemented.");
-
     const resp = await this.store.get("foo");
 
     const data = resp.data as NoteProps;
-    return Promise.resolve({
-      data: [data],
-    });
+    return Promise.resolve([data]);
+  }
+  async queryNotesMeta(_opts: QueryNotesOpts): Promise<QueryNotesMetaResp> {
+    const resp = await this.store.get("foo");
+
+    const data = resp.data as NotePropsMeta;
+    return Promise.resolve([data]);
+  }
+  renderNote(_opts: RenderNoteOpts): Promise<RenderNoteResp> {
+    throw new Error("Method not implemented.");
   }
 }

@@ -27,7 +27,7 @@ import {
   FindNoteOpts,
   GetSchemaResp,
   IDendronError,
-  IntermediateDendronConfig,
+  DendronConfig,
   isNotUndefined,
   NoteChangeEntry,
   NoteChangeUpdateEntry,
@@ -53,9 +53,9 @@ import {
   VaultUtils,
   WriteNoteResp,
   WriteSchemaResp,
+  ConfigService,
 } from "@dendronhq/common-all";
 import {
-  DConfig,
   DLogger,
   file2Note,
   getAllFiles,
@@ -73,7 +73,7 @@ import { NotesFileSystemCache } from "../../cache";
 import { HookUtils, RequireHookResp } from "../../topics/hooks";
 import { InMemoryNoteCache } from "../../util/inMemoryNoteCache";
 import { EngineUtils } from "../../utils";
-import { SQLiteMetadataStore } from "../SQLiteMetadataStore";
+import { SQLiteMetadataStore } from "../PrismaSQLiteMetadataStore";
 import { NoteParser } from "./noteParser";
 import { SchemaParser } from "./schemaParser";
 
@@ -92,14 +92,14 @@ export class FileStorage implements DStore {
   public logger: DLogger;
   public anchors: DNoteAnchorPositioned[];
   public wsRoot: string;
-  public config: IntermediateDendronConfig;
+  public config: DendronConfig;
 
   private engine: DEngineClient;
 
   constructor(props: {
     engine: DEngineClient;
     logger: DLogger;
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }) {
     const { vaults, wsRoot } = props.engine;
     const { logger, config } = props;
@@ -232,11 +232,11 @@ export class FileStorage implements DStore {
     let notes: NoteProps[];
 
     if (fname) {
-      notes = NoteDictsUtils.findByFname(
+      notes = NoteDictsUtils.findByFname({
         fname,
-        { notesById: this.notes, notesByFname: this.noteFnames },
-        vault
-      );
+        noteDicts: { notesById: this.notes, notesByFname: this.noteFnames },
+        vault,
+      });
     } else if (vault) {
       notes = _.values(this.notes).filter((note) =>
         VaultUtils.isEqualV2(note.vault, vault)
@@ -705,7 +705,9 @@ export class FileStorage implements DStore {
     const cachePath = path.join(vpath, CONSTANTS.DENDRON_CACHE_FILE);
     const notesCache: NotesFileSystemCache = new NotesFileSystemCache({
       cachePath,
-      noCaching: this.config.noCaching,
+      // TODO: remove caching logic later
+      // noCaching: this.config.noCaching,
+      noCaching: false,
       logger: this.logger,
     });
     if (!out.data) {
@@ -898,7 +900,7 @@ export class FileStorage implements DStore {
           alias = undefined;
         }
         // for user tag links, we'll have to regenerate the alias
-        if (newLoc.fname.startsWith(USERS_HIERARCHY)) {
+        if (link.type !== "ref" && newLoc.fname.startsWith(USERS_HIERARCHY)) {
           const fnameWithoutTag = newLoc.fname.slice(USERS_HIERARCHY.length);
           alias = `@${fnameWithoutTag}`;
         } else if (oldLink.from.fname.startsWith(USERS_HIERARCHY)) {
@@ -1198,12 +1200,19 @@ export class FileStorage implements DStore {
       msg: "enter",
       note: NoteUtils.toLogObj(note),
     });
+    const configReadResult = await ConfigService.instance().readConfig(
+      URI.file(this.wsRoot)
+    );
+    if (configReadResult.isErr()) {
+      throw configReadResult.error;
+    }
+    const config = configReadResult.value;
 
     // Update links/anchors based on note body
     EngineUtils.refreshNoteLinksAndAnchors({
       note,
       engine: this.engine,
-      config: DConfig.readConfigSync(this.wsRoot),
+      config,
     });
 
     let changed: NoteChangeEntry[] = [];
@@ -1298,11 +1307,11 @@ export class FileStorage implements DStore {
       note: NoteUtils.toLogObj(note),
     });
     // check if note might already exist
-    const maybeNote = NoteDictsUtils.findByFname(
-      note.fname,
-      { notesById: this.notes, notesByFname: this.noteFnames },
-      note.vault
-    )[0];
+    const maybeNote = NoteDictsUtils.findByFname({
+      fname: note.fname,
+      noteDicts: { notesById: this.notes, notesByFname: this.noteFnames },
+      vault: note.vault,
+    })[0];
     this.logger.info({
       ctx,
       msg: "check:existing",
@@ -1497,19 +1506,16 @@ export class FileStorage implements DStore {
             vaults: this.vaults,
           })
         : undefined;
-      const notes = NoteDictsUtils.findByFname(
-        link.to.fname,
-        { notesById: this.notes, notesByFname: this.noteFnames },
-        maybeVault
-      );
+      const notes = NoteDictsUtils.findByFname({
+        fname: link.to.fname,
+        noteDicts: { notesById: this.notes, notesByFname: this.noteFnames },
+        vault: maybeVault,
+        skipCloneDeep: true,
+      });
       return Promise.all(
         notes.map(async (note) => {
           const prevNote = _.cloneDeep(note);
           BacklinkUtils.addBacklinkInPlace({ note, backlink: maybeBacklink });
-          NoteDictsUtils.add(note, {
-            notesById: this.notes,
-            notesByFname: this.noteFnames,
-          });
           return {
             prevNote,
             note,
@@ -1539,21 +1545,18 @@ export class FileStorage implements DStore {
             vaults: this.vaults,
           })
         : undefined;
-      const notes = NoteDictsUtils.findByFname(
-        link.to.fname,
-        { notesById: this.notes, notesByFname: this.noteFnames },
-        maybeVault
-      );
+      const notes = NoteDictsUtils.findByFname({
+        fname: link.to.fname,
+        noteDicts: { notesById: this.notes, notesByFname: this.noteFnames },
+        vault: maybeVault,
+        skipCloneDeep: true,
+      });
       return Promise.all(
         notes.map(async (note) => {
           const prevNote = _.cloneDeep(note);
           BacklinkUtils.removeBacklinkInPlace({
             note,
             backlink: maybeBacklink,
-          });
-          NoteDictsUtils.add(note, {
-            notesById: this.notes,
-            notesByFname: this.noteFnames,
           });
           return {
             prevNote,

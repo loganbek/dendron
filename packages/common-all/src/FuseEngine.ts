@@ -6,6 +6,7 @@ import {
   DNodeUtils,
   NoteProps,
   NotePropsByIdDict,
+  NotePropsMeta,
   SchemaModuleDict,
   SchemaModuleProps,
   SchemaProps,
@@ -265,29 +266,30 @@ export class FuseEngine {
   }
 
   async updateNotesIndex(noteChanges: NoteChangeEntry[]) {
-    noteChanges.forEach((change) => {
-      switch (change.status) {
-        case "create": {
-          this.addNoteToIndex(change.note);
-          break;
+    return Promise.all(
+      noteChanges.map(async (change) => {
+        switch (change.status) {
+          case "create": {
+            return this.addNoteToIndex(change.note);
+          }
+          case "delete": {
+            return this.removeNoteFromIndex(change.note);
+          }
+          case "update": {
+            // Fuse has no update. Must remove old and add new
+            this.removeNoteFromIndex(change.prevNote);
+            this.addNoteToIndex(change.note);
+            return;
+          }
+          default:
+            break;
         }
-        case "delete": {
-          this.removeNoteFromIndex(change.note);
-          break;
-        }
-        case "update": {
-          // Fuse has no update. Must remove old and add new
-          this.removeNoteFromIndex(change.prevNote);
-          this.addNoteToIndex(change.note);
-          break;
-        }
-        default:
-          break;
-      }
-    });
+        return;
+      })
+    );
   }
 
-  async removeNoteFromIndex(note: NoteProps) {
+  removeNoteFromIndex(note: NotePropsMeta) {
     this.notesIndex.remove((doc) => {
       // FIXME: can be undefined, dunno why
       if (!doc) {
@@ -297,7 +299,7 @@ export class FuseEngine {
     });
   }
 
-  async addNoteToIndex(note: NoteProps) {
+  addNoteToIndex(note: NotePropsMeta) {
     const indexProps: NoteIndexProps = _.pick(note, [
       "fname",
       "id",
@@ -310,11 +312,11 @@ export class FuseEngine {
     this.notesIndex.add(indexProps);
   }
 
-  async addSchemaToIndex(schema: SchemaModuleProps) {
+  addSchemaToIndex(schema: SchemaModuleProps) {
     this.schemaIndex.add(SchemaUtils.getModuleRoot(schema));
   }
 
-  async removeSchemaFromIndex(smod: SchemaModuleProps) {
+  removeSchemaFromIndex(smod: SchemaModuleProps) {
     this.schemaIndex.remove((doc: SchemaProps) => {
       // FIXME: can be undefined, dunno why
       if (!doc) {

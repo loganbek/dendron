@@ -1,15 +1,18 @@
 import { Server } from "@dendronhq/api-server";
 import {
-  CleanDendronSiteConfig,
   ConfigUtils,
   CONSTANTS,
   DEngineClient,
   DVault,
   DWorkspace,
-  IntermediateDendronConfig,
+  DendronConfig,
   WorkspaceFolderRaw,
   WorkspaceOpts,
   WorkspaceSettings,
+  CleanDendronPublishingConfig,
+  genDefaultPublishingConfig,
+  ConfigService,
+  URI,
 } from "@dendronhq/common-all";
 import {
   DConfig,
@@ -29,6 +32,7 @@ import { LaunchEngineServerCommand } from "@dendronhq/dendron-cli";
 import {
   createEngine as engineServerCreateEngine,
   createEngineV3,
+  NodeJSFileStore,
   WorkspaceConfig,
   WorkspaceService,
 } from "@dendronhq/engine-server";
@@ -40,9 +44,7 @@ import sinon, { SinonStub } from "sinon";
 import { ENGINE_HOOKS } from "./presets";
 import { GitTestUtils } from "./utils";
 
-export type ModConfigCb = (
-  config: IntermediateDendronConfig
-) => IntermediateDendronConfig;
+export type ModConfigCb = (config: DendronConfig) => DendronConfig;
 
 export type TestSetupWorkspaceOpts = {
   /**
@@ -85,7 +87,7 @@ export async function createEngineFromEngine(opts: WorkspaceOpts) {
  */
 export async function createEngineV3FromEngine(opts: WorkspaceOpts) {
   return {
-    engine: createEngineV3(opts) as DEngineClient,
+    engine: await createEngineV3(opts),
     port: undefined,
     server: undefined,
   };
@@ -126,14 +128,17 @@ export async function createEngineByConnectingToDebugServer(
   return { engine, port, server };
 }
 
-export function createSiteConfig(
-  opts: Partial<CleanDendronSiteConfig> &
-    Required<Pick<CleanDendronSiteConfig, "siteRootDir" | "siteHierarchies">>
-): CleanDendronSiteConfig {
+export function createPublishingConfig(
+  opts: Partial<CleanDendronPublishingConfig> &
+    Required<
+      Pick<CleanDendronPublishingConfig, "siteRootDir" | "siteHierarchies">
+    >
+): CleanDendronPublishingConfig {
+  const defaultPublishingConfig = genDefaultPublishingConfig();
   const copts = {
-    siteNotesDir: "docs",
-    siteUrl: "https://localhost:8080",
+    ...defaultPublishingConfig,
     ...opts,
+    siteUrl: "https://localhost:8080",
   };
   return {
     ...copts,
@@ -156,10 +161,15 @@ export async function setupWS(opts: {
 }) {
   const wsRoot = opts.wsRoot || tmpDir().name;
   const ws = new WorkspaceService({ wsRoot });
-  ws.createConfig();
+  ConfigService._singleton = undefined;
+  ConfigService.instance({
+    homeDir: URI.file(os.homedir()),
+    fileStore: new NodeJSFileStore(),
+  });
+  await ConfigService.instance().createConfig(URI.file(wsRoot));
   // create dendron.code-workspace
   WorkspaceConfig.write(wsRoot, opts.vaults);
-  let config = ws.config;
+  let config = await ws.config;
   let vaults = await Promise.all(
     opts.vaults.map(async (vault) => {
       await ws.createVault({ vault, config, updateConfig: false });
@@ -169,7 +179,7 @@ export async function setupWS(opts: {
   const vaultsConfig = ConfigUtils.getVaults(config);
   const sortedVaultsConfig = _.sortBy(vaultsConfig, "fsPath");
   ConfigUtils.setVaults(config, sortedVaultsConfig);
-  const publishingConfig = ConfigUtils.getPublishingConfig(config);
+  const publishingConfig = ConfigUtils.getPublishing(config);
   if (publishingConfig.duplicateNoteBehavior) {
     const sortedPayload = (
       publishingConfig.duplicateNoteBehavior.payload as string[]
@@ -251,7 +261,7 @@ export async function runEngineTestV5(
   } = _.defaults(opts, {
     preSetupHook: async () => {},
     postSetupHook: async () => {},
-    createEngine: createEngineFromEngine,
+    createEngine: createEngineV3FromEngine,
     extra: {},
     // third vault has diff name
     vaults: [

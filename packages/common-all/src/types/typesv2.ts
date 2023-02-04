@@ -1,5 +1,9 @@
 import { URI } from "vscode-uri";
+import { Decoration, DendronConfig, Diagnostic } from ".";
 import { IDendronError } from "../error";
+import { VSRange } from "./compat";
+import { DVault } from "./DVault";
+import { FindNoteOpts } from "./FindNoteOpts";
 import {
   DNodeProps,
   DNodeType,
@@ -12,12 +16,7 @@ import {
   SchemaProps,
 } from "./foundation";
 import { DHookDict } from "./hooks";
-import { IntermediateDendronConfig } from "./intermediateConfigs";
-import { VSRange } from "./compat";
-import { Decoration, Diagnostic } from ".";
 import { DendronASTDest, ProcFlavor } from "./unified";
-import { FindNoteOpts } from "./FindNoteOpts";
-import { DVault } from "./DVault";
 
 export type OptionalExceptFor<T, TRequired extends keyof T> = Partial<T> &
   Pick<T, TRequired>;
@@ -32,6 +31,10 @@ export type EngineDeleteOpts = {
    */
   noDeleteParentStub?: boolean;
 };
+
+export type AnyJson = boolean | number | string | null | JsonArray | JsonMap;
+export type JsonMap = { [key: string]: AnyJson };
+export type JsonArray = AnyJson[];
 
 // === New
 
@@ -84,7 +87,7 @@ export type SchemaRaw = Pick<SchemaProps, "id"> &
     Pick<DNodeProps, "children">
   >;
 
-export type SchemaOpts = Omit<DNodeOpts<SchemaData>, "type" | "id"> & {
+export type SchemaOpts = Omit<DNodeOpts<SchemaData>, "type" | "id" | "body"> & {
   id: string;
 };
 export type NoteOpts = Omit<DNodeOpts, "type">;
@@ -94,17 +97,12 @@ export type DNodePropsQuickInputV2<T = any> = DNodeProps<T> & {
   detail?: string;
   alwaysShow?: boolean;
 };
-export type NoteQuickInput = NoteProps & {
-  label: string;
-  detail?: string;
-  alwaysShow?: boolean;
-};
 
 /**
  * A reduced version of NoteQuickInput that only keeps the props necessary for
  * lookup quick pick items
  */
-export type NoteQuickInputV2 = Pick<NoteProps, "fname" | "vault" | "schema"> & {
+export type NoteQuickInputV2 = NotePropsMeta & {
   label: string;
   detail?: string;
   alwaysShow?: boolean;
@@ -243,6 +241,7 @@ export type EngineWriteOptsV2 = {
   runHooks?: boolean;
   /**
    * If true, overwrite existing note with same fname and vault, even if note has a different id
+   * Commonly used if needed to override a note id
    */
   overrideExisting?: boolean;
   /**
@@ -262,7 +261,7 @@ export type DEngineInitPayload = {
   notes: NotePropsByIdDict;
   wsRoot: string;
   vaults: DVault[];
-  config: IntermediateDendronConfig;
+  config: DendronConfig;
 };
 export type RenameNoteOpts = {
   oldLoc: DNoteLoc;
@@ -312,10 +311,6 @@ export type QueryNotesOpts = {
   originalQS: string;
   onlyDirectChildren?: boolean;
   vault?: DVault;
-  /**
-   * @deprecated - we shouldn't be creating any notes in the engine from a query API call
-   */
-  createIfNew?: boolean;
 };
 
 export type BulkWriteNotesOpts = {
@@ -328,18 +323,6 @@ export type BulkWriteNotesOpts = {
 // === Engine and Store Main
 
 export type DCommonProps = {
-  /**
-   * @deprecated
-   * For access, see {@link DEngine.getNote}
-   * Dictionary where key is the note id.
-   */
-  notes: NotePropsByIdDict;
-  /**
-   * @deprecated
-   * For access, see {@link DEngine.findNotes}
-   * Dictionary where the key is lowercase note fname, and values are ids of notes with that fname (multiple ids since there might be notes with same fname in multiple vaults).
-   */
-  noteFnames: NotePropsByFnameDict;
   wsRoot: string;
   vaults: DVault[];
 };
@@ -389,7 +372,8 @@ export type WriteNoteResp = RespV3<NoteChangeEntry[]>;
 export type BulkWriteNotesResp = RespWithOptError<NoteChangeEntry[]>;
 export type UpdateNoteResp = RespV2<NoteChangeEntry[]>; // TODO: remove
 export type DeleteNoteResp = RespV3<NoteChangeEntry[]>;
-export type QueryNotesResp = RespV3<NoteProps[]>;
+export type QueryNotesResp = NoteProps[];
+export type QueryNotesMetaResp = NotePropsMeta[];
 export type RenameNoteResp = RespV3<NoteChangeEntry[]>;
 export type EngineInfoResp = RespV3<{
   version: string;
@@ -474,7 +458,6 @@ export type WorkspaceExtensionSetting = {
 
 export type DEngine = DCommonProps &
   DCommonMethods & {
-    store: DStore;
     vaults: DVault[];
     hooks: DHookDict;
 
@@ -519,17 +502,13 @@ export type DEngine = DCommonProps &
     getSchema: (id: string) => Promise<GetSchemaResp>;
     querySchema: (qs: string) => Promise<QuerySchemaResp>;
     /**
-     * Query for NoteProps from fuse engine
+     * Query for NoteProps
      */
     queryNotes: (opts: QueryNotesOpts) => Promise<QueryNotesResp>;
-    queryNotesSync({
-      qs,
-      originalQS,
-    }: {
-      qs: string;
-      originalQS: string;
-      vault?: DVault;
-    }): QueryNotesResp;
+    /**
+     * Query for NotePropsMeta
+     */
+    queryNotesMeta: (opts: QueryNotesOpts) => Promise<QueryNotesMetaResp>;
     /**
      * Rename note from old DNoteLoc to new DNoteLoc. New note keeps original id
      */
@@ -550,6 +529,18 @@ export type DEngineClient = Omit<DEngine, "store">;
 
 export type DStore = DCommonProps &
   DCommonMethods & {
+    /**
+     * @deprecated
+     * For access, see {@link DEngine.getNote}
+     * Dictionary where key is the note id.
+     */
+    notes: NotePropsByIdDict;
+    /**
+     * @deprecated
+     * For access, see {@link DEngine.findNotes}
+     * Dictionary where the key is lowercase note fname, and values are ids of notes with that fname (multiple ids since there might be notes with same fname in multiple vaults).
+     */
+    noteFnames: NotePropsByFnameDict;
     init: () => Promise<StoreV2InitResp>;
     /**
      * Get NoteProps by id. If note doesn't exist, return error
@@ -593,7 +584,7 @@ export type WorkspaceVault = {
 export type WorkspaceOpts = {
   wsRoot: string;
   vaults: DVault[];
-  dendronConfig?: IntermediateDendronConfig;
+  dendronConfig?: DendronConfig;
 };
 
 // === Pods
@@ -783,7 +774,7 @@ export type GraphViewMessage = DMessage<
 export type ConfigureUIMessage = DMessage<
   ConfigureUIMessageType,
   {
-    config: IntermediateDendronConfig;
+    config: DendronConfig;
   }
 >;
 

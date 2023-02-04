@@ -1,7 +1,11 @@
+import { ResultAsync } from "neverthrow";
+import { IDendronError } from "../error";
 import {
+  Disposable,
   DNoteLoc,
   NoteProps,
   NotePropsMeta,
+  QueryNotesOpts,
   RespV3,
   WriteNoteMetaOpts,
   WriteNoteOpts,
@@ -11,7 +15,7 @@ import { FindNoteOpts } from "../types/FindNoteOpts";
 /**
  * Interface responsible for interacting with NoteProps storage layer
  */
-export interface INoteStore<K> {
+export interface INoteStore<K> extends Disposable {
   /**
    * Get NoteProps by key
    * If key is not found, return error.
@@ -119,4 +123,25 @@ export interface INoteStore<K> {
    * @return key of NoteProps to rename
    */
   rename(oldLoc: DNoteLoc, newLoc: DNoteLoc): Promise<RespV3<K>>;
+
+  /**
+   * Query NoteProps by criteria. Differs from find in that this supports full-text fuzzy search
+   * on note properties.
+   *
+   * @param opts: NoteProps criteria
+   * @return List of NoteProps that matches criteria
+   */
+  query(opts: QueryNotesOpts): ResultAsync<NoteProps[], IDendronError>;
+
+  /**
+   * Query NoteProps metadata by criteria. Differs from find in that this supports full-text fuzzy search
+   * on note properties.
+   * TODO: consider replacing findMetadata altogether
+   *
+   * @param opts: NotePropsMeta criteria
+   * @return List of NoteProps metadata that matches criteria
+   */
+  queryMetadata(
+    opts: QueryNotesOpts
+  ): ResultAsync<NotePropsMeta[], IDendronError>;
 }

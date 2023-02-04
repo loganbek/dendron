@@ -78,8 +78,10 @@ export async function setupEngine(
   // instead of spwaning an engine in a separate process, create one
   // in memory
   if (useLocalEngine) {
+    // TODO Sqlite - respect config dev flags to use Sqlite Engine V3 if
+    // specified.
     const engine = newEngine
-      ? DendronEngineV3.create({ wsRoot, logger })
+      ? await DendronEngineV3.create({ wsRoot, logger })
       : DendronEngineV2.create({ wsRoot, logger });
     const out = await engine.init();
     if (out.error) {
@@ -103,7 +105,7 @@ export async function setupEngine(
       enginePort,
       init,
     });
-    const engineConnector = EngineConnector.getOrCreate({
+    const engineConnector = await EngineConnector.getOrCreate({
       wsRoot,
     });
     await engineConnector.init({
@@ -126,7 +128,7 @@ export async function setupEngine(
       attach: opts.attach,
       init,
     });
-    const engineConnector = EngineConnector.getOrCreate({
+    const engineConnector = await EngineConnector.getOrCreate({
       wsRoot,
     });
     await engineConnector.init({

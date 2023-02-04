@@ -70,45 +70,6 @@ const _2022_06_QUICKSTART_TUTORIAL_TEST = new ABTest(
   ]
 );
 
-export enum VideoTutorialTestGroups {
-  "gif" = "gif",
-  "video" = "video",
-}
-
-export const _2022_09_VIDEO_TUTORIAL_TEST = new ABTest(
-  "2022-09-VideoTutorialTest",
-  [
-    {
-      name: VideoTutorialTestGroups.gif,
-      weight: 1,
-    },
-    {
-      name: VideoTutorialTestGroups.video,
-      weight: 1,
-    },
-  ]
-);
-
-/**
- * Experiment to test highlights in quickpick labels
- */
-export enum CreateNewWithTemplateQuickPickLabelHighlightTestGroups {
-  "none" = "none",
-  "label" = "label",
-}
-
-export const _2022_09_CREATE_NEW_WITH_TEMPLATE_QUICKPICK_LABEL_HIGHLIGHT_TEST =
-  new ABTest("2022-09-CreateNewWithTemplateQuickPickLabelHighlightTest", [
-    {
-      name: CreateNewWithTemplateQuickPickLabelHighlightTestGroups.none,
-      weight: 1,
-    },
-    {
-      name: CreateNewWithTemplateQuickPickLabelHighlightTestGroups.label,
-      weight: 1,
-    },
-  ]);
-
 /**
  * Tutorial type of our ever-running / up to date main tutorial.
  * This should never change.
@@ -134,5 +95,4 @@ export const CURRENT_TUTORIAL_TEST: ABTest<any> | undefined =
 export const CURRENT_AB_TESTS = [
   GRAPH_THEME_TEST,
   CURRENT_TUTORIAL_TEST,
-  _2022_09_VIDEO_TUTORIAL_TEST,
 ].filter((entry): entry is ABTest<any> => !!entry);

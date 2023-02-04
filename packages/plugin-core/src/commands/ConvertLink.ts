@@ -1,7 +1,7 @@
 import {
   assertUnreachable,
   DendronError,
-  NoteProps,
+  NotePropsMeta,
   NoteUtils,
   VaultUtils,
 } from "@dendronhq/common-all";
@@ -132,7 +132,7 @@ export class ConvertLinkCommand extends BasicCommand<
       vaultSelectCanToggle: false,
     };
     const extension = ExtensionProvider.getExtension();
-    const lc = extension.lookupControllerFactory.create(lcOpts);
+    const lc = await extension.lookupControllerFactory.create(lcOpts);
     const provider = extension.noteLookupProviderFactory.create(this.key, {
       allowNewNote: false,
       noHidePickerOnAccept: false,
@@ -234,7 +234,7 @@ export class ConvertLinkCommand extends BasicCommand<
           break;
         }
         text = NoteUtils.createWikiLink({
-          note: resp?.selectedItems[0] as NoteProps,
+          note: resp?.selectedItems[0] as NotePropsMeta,
           alias: { mode: "title" },
         });
         break;
@@ -344,7 +344,7 @@ export class ConvertLinkCommand extends BasicCommand<
     }
     const targetVault = vaultName
       ? VaultUtils.getVaultByName({ vaults, vname: vaultName })
-      : WSUtils.getVaultFromDocument(document);
+      : await WSUtils.getVaultFromDocument(document);
 
     if (targetVault === undefined) {
       throw ConvertLinkCommand.noVaultError();

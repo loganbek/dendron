@@ -4,7 +4,7 @@ import {
   DNodeCompositeKey,
   DUtils,
   DVault,
-  IntermediateDendronConfig,
+  DendronConfig,
   NoteDicts,
   NoteDictsUtils,
   NoteProps,
@@ -39,7 +39,7 @@ import { MDUtilsV5 } from "../utilsv5";
 export async function getParsingDependencyDicts(
   noteToProcess: NoteProps,
   engine: ReducedDEngine,
-  config: IntermediateDendronConfig,
+  config: DendronConfig,
   vaults: DVault[]
 ): Promise<NoteDicts> {
   let allData: NoteProps[] = [];
@@ -123,13 +123,13 @@ function getNoteDependencies(ast: Node<Data>): DNodeCompositeKey[] {
 
   visit(ast, [DendronASTTypes.HASHTAG], (hashtag: HashTag, _index) => {
     renderDependencies.push({
-      fname: hashtag.value,
+      fname: hashtag.fname,
     });
   });
 
   visit(ast, [DendronASTTypes.USERTAG], (noteRef: UserTag, _index) => {
     renderDependencies.push({
-      fname: noteRef.value,
+      fname: noteRef.fname,
     });
   });
 
@@ -172,13 +172,13 @@ async function getRecursiveNoteDependencies(
   // the all notes that match the wildcard pattern.
   await Promise.all(
     wildCards.map(async (data) => {
-      const resp = await engine.queryNotes({
+      const resp = await engine.queryNotesMeta({
         qs: data.fname,
         originalQS: data.fname,
         // vault: data.vaultName
       });
 
-      const out = _.filter(resp.data, (ent) =>
+      const out = _.filter(resp, (ent) =>
         DUtils.minimatch(ent.fname, data.fname)
       );
 
@@ -205,7 +205,7 @@ async function getForwardLinkDependencies(
   noteToRender: NoteProps,
   vaults: DVault[],
   engine: ReducedDEngine,
-  config: IntermediateDendronConfig
+  config: DendronConfig
 ): Promise<NoteProps[]> {
   const MAX_DEPTH = 3;
 

@@ -3,6 +3,110 @@
 All notable changes to this project will be documented in this file.
 See [Conventional Commits](https://conventionalcommits.org) for commit guidelines.
 
+# 0.119.0 (2022-12-06)
+
+
+### Bug Fixes
+
+* preview not rendering ([208c9eb](https://github.com/dendronhq/dendron/commit/208c9eb74da28a180535603bd9ff54feb932e2ed))
+
+
+
+
+
+# 0.118.0 (2022-11-22)
+
+
+### Bug Fixes
+
+* **workspace:** rename note breaks noteref for user hierarchy ([#3782](https://github.com/dendronhq/dendron/issues/3782)) ([053b949](https://github.com/dendronhq/dendron/commit/053b9492cf1c4c88346210718b3a0c26bec43d05))
+
+
+
+
+
+# 0.117.0 (2022-11-08)
+
+**Note:** Version bump only for package @dendronhq/pods-core
+
+
+
+
+
+## [0.116.2](https://github.com/dendronhq/dendron/compare/v0.112.1...v0.116.2) (2022-10-26)
+
+
+### Bug Fixes
+
+* nextjs export pod no longer calls getparsingdependencydicts ([81eeb18](https://github.com/dendronhq/dendron/commit/81eeb18dc0207b80dd02f8eb6f9141918574b9f7))
+
+
+
+# 0.116.0 (2022-10-25)
+
+
+### Bug Fixes
+
+* **sync:** next js export pod error ([#3539](https://github.com/dendronhq/dendron/issues/3539)) ([bf62753](https://github.com/dendronhq/dendron/commit/bf62753af19a58ee08d98ff11542f22f1df25fab))
+* **workspace:** wikilinks appear broken + pod fixes ([#3532](https://github.com/dendronhq/dendron/issues/3532)) ([74f91e2](https://github.com/dendronhq/dendron/commit/74f91e26f5f9bad25059cf160ac54bbb2f816eca))
+
+
+### Features Dendron
+
+* **workspace:** copy as command ([#3544](https://github.com/dendronhq/dendron/issues/3544)) ([4f77dfa](https://github.com/dendronhq/dendron/commit/4f77dfa8a42dc3d80582193f8b0804b8b0fa9657))
+
+
+
+
+
+## [0.116.1](https://github.com/dendronhq/dendron/compare/v0.112.1...v0.116.1) (2022-10-25)
+
+
+
+# 0.116.0 (2022-10-25)
+
+
+### Bug Fixes
+
+* **sync:** next js export pod error ([#3539](https://github.com/dendronhq/dendron/issues/3539)) ([bf62753](https://github.com/dendronhq/dendron/commit/bf62753af19a58ee08d98ff11542f22f1df25fab))
+* **workspace:** wikilinks appear broken + pod fixes ([#3532](https://github.com/dendronhq/dendron/issues/3532)) ([74f91e2](https://github.com/dendronhq/dendron/commit/74f91e26f5f9bad25059cf160ac54bbb2f816eca))
+
+
+### Features Dendron
+
+* **workspace:** copy as command ([#3544](https://github.com/dendronhq/dendron/issues/3544)) ([4f77dfa](https://github.com/dendronhq/dendron/commit/4f77dfa8a42dc3d80582193f8b0804b8b0fa9657))
+
+
+
+
+
+# 0.116.0 (2022-10-25)
+
+**Note:** Version bump only for package @dendronhq/pods-core
+
+
+
+
+
+## 0.115.1 (2022-10-13)
+
+
+### Bug Fixes
+
+* npm overrides for packages with vulnerabilities ([#3666](https://github.com/dendronhq/dendron/issues/3666)) ([84f3cb2](https://github.com/dendronhq/dendron/commit/84f3cb2af692516778142e003cad294b7c579b25))
+
+
+
+
+
+# 0.115.0 (2022-10-11)
+
+**Note:** Version bump only for package @dendronhq/pods-core
+
+
+
+
+
 # 0.114.0 (2022-09-27)
 
 

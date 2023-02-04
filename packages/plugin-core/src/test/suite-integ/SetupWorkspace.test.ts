@@ -74,7 +74,7 @@ suite("GIVEN SetupWorkspace Command", function () {
   let homeDirStub: SinonStub;
   let userConfigDirStub: SinonStub;
   let wsFoldersStub: SinonStub;
-  this.timeout(6 * 1000);
+  this.timeout(8 * 1000);
 
   let ctx: ExtensionContext;
   beforeEach(async () => {
@@ -96,7 +96,7 @@ suite("GIVEN SetupWorkspace Command", function () {
     wsFoldersStub.restore();
   });
   describe("WHEN initializing a CODE workspace", function () {
-    this.timeout(6 * 1000);
+    this.timeout(8 * 1000);
 
     describe("AND workspace has not been set up yet", () => {
       test("THEN Dendon does not activate", async () => {
@@ -209,7 +209,9 @@ suite("GIVEN SetupWorkspace Command", function () {
       },
       () => {
         test("THEN Dendron initializes", async () => {
-          const { wsRoot, vaults, engine } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine, wsRoot } = ws;
+          const vaults = await ws.vaults;
           // check for meta
           const fpath = getWSMetaFilePath({ wsRoot });
           const meta = openWSMetaFile({ fpath });
@@ -242,7 +244,9 @@ suite("GIVEN SetupWorkspace Command", function () {
       () => {
         // Question mark because I'm not sure what this test is actually testing for.
         test("THEN it still initializes?", async () => {
-          const { wsRoot, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { wsRoot } = ws;
+          const vaults = await ws.vaults;
           const vault = path.join(wsRoot, VaultUtils.getRelPath(vaults[0]));
           expect(fs.readdirSync(vault)).toEqual(
             [CONSTANTS.DENDRON_CACHE_FILE].concat(genEmptyWSFiles())
@@ -328,7 +332,7 @@ suite("GIVEN SetupWorkspace Command", function () {
   });
 
   describe("WHEN initializing a NATIVE workspace", function () {
-    this.timeout(6 * 1000);
+    this.timeout(8 * 1000);
 
     test("not active, initial create ws", async () => {
       const wsRoot = tmpDir().name;

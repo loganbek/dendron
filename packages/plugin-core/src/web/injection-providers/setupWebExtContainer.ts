@@ -5,7 +5,7 @@ import {
   IDataStore,
   IFileStore,
   INoteStore,
-  IntermediateDendronConfig,
+  DendronConfig,
   NoteMetadataStore,
   NotePropsMeta,
   NoteStore,
@@ -27,8 +27,6 @@ import { TreeViewDummyConfig } from "../../views/common/treeview/TreeViewDummyCo
 import { ILookupProvider } from "../commands/lookup/ILookupProvider";
 import { NoteLookupProvider } from "../commands/lookup/NoteLookupProvider";
 import { DendronEngineV3Web } from "../engine/DendronEngineV3Web";
-import { INoteRenderer } from "../engine/INoteRenderer";
-import { PluginNoteRenderer } from "../engine/PluginNoteRenderer";
 import { VSCodeFileStore } from "../engine/store/VSCodeFileStore";
 import { ConsoleLogger } from "../utils/ConsoleLogger";
 import {
@@ -36,9 +34,10 @@ import {
   IPreviewPanelConfig,
 } from "../views/preview/IPreviewPanelConfig";
 import { PreviewLinkHandler } from "../views/preview/PreviewLinkHandler";
-import { PreviewPanel } from "../views/preview/PreviewPanel";
+import { PreviewPanel } from "../../views/common/preview/PreviewPanel";
 import { getAssetsPrefix } from "./getAssetsPrefix";
 import { getEnablePrettlyLinks } from "./getEnablePrettlyLinks";
+import { getFuseEngine } from "./getFuseEngine";
 import { getSiteIndex } from "./getSiteIndex";
 import { getSiteUrl } from "./getSiteUrl";
 import { getVaults } from "./getVaults";
@@ -62,6 +61,8 @@ export async function setupWebExtContainer(context: vscode.ExtensionContext) {
   const enablePrettyLinks = await getEnablePrettlyLinks(wsRoot);
   const siteUrl = await getSiteUrl(wsRoot);
   const siteIndex = await getSiteIndex(wsRoot);
+  const fuseEngine = await getFuseEngine(wsRoot);
+  const noteMetadataStore = new NoteMetadataStore(fuseEngine);
 
   container.register<vscode.ExtensionContext>("extensionContext", {
     useValue: context,
@@ -86,13 +87,9 @@ export async function setupWebExtContainer(context: vscode.ExtensionContext) {
     useClass: VSCodeFileStore,
   });
 
-  container.register<IDataStore<string, NotePropsMeta>>(
-    "IDataStore",
-    {
-      useClass: NoteMetadataStore,
-    },
-    { lifecycle: Lifecycle.Singleton }
-  );
+  container.register<IDataStore<string, NotePropsMeta>>("IDataStore", {
+    useValue: noteMetadataStore,
+  });
 
   container.register("wsRoot", { useValue: wsRoot });
   container.register("vaults", { useValue: vaults });
@@ -170,13 +167,9 @@ export async function setupWebExtContainer(context: vscode.ExtensionContext) {
     useValue: 1,
   });
 
-  container.register<INoteRenderer>("INoteRenderer", {
-    useClass: PluginNoteRenderer,
-  });
-
   const config = await getWorkspaceConfig(wsRoot);
-  container.register<IntermediateDendronConfig>("IntermediateDendronConfig", {
-    useValue: config as IntermediateDendronConfig,
+  container.register<DendronConfig>("DendronConfig", {
+    useValue: config as DendronConfig,
   });
 
   setupTabAutoComplete(context);

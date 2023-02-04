@@ -1,20 +1,21 @@
 import {
   ConfigUtils,
-  DNodePropsQuickInputV2,
   DNodeUtils,
   DVault,
-  IntermediateDendronConfig,
+  DendronConfig,
   LookupNoteTypeEnum,
   LookupSelectionModeEnum,
   LookupSelectionTypeEnum,
   NoteProps,
-  NoteQuickInput,
   SchemaTemplate,
   SchemaUtils,
   Time,
   VaultUtils,
+  ConfigService,
+  URI,
+  NoteQuickInputV2,
 } from "@dendronhq/common-all";
-import { DConfig, tmpDir, vault2Path } from "@dendronhq/common-server";
+import { tmpDir, vault2Path } from "@dendronhq/common-server";
 import {
   EngineTestUtilsV4,
   FileTestUtils,
@@ -61,7 +62,6 @@ import {
 } from "../../components/lookup/utils";
 import { CONFIG } from "../../constants";
 import { ExtensionProvider } from "../../ExtensionProvider";
-import { StateService } from "../../services/stateService";
 import { clipboard } from "../../utils";
 import { VSCodeUtils } from "../../vsCodeUtils";
 import { DendronExtension } from "../../workspace";
@@ -127,7 +127,7 @@ function expectCreateNew({
   item,
   fname,
 }: {
-  item: DNodePropsQuickInputV2;
+  item: NoteQuickInputV2;
   fname?: string;
 }) {
   if (item.label !== CREATE_NEW_LABEL) {
@@ -587,7 +587,7 @@ suite("NoteLookupCommand", function () {
       },
       () => {
         test("THEN create new item has name of quickpick value", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
           const opts = (await cmd.run({
@@ -618,7 +618,9 @@ suite("NoteLookupCommand", function () {
 
         test("AND create new with template", async () => {
           const extension = ExtensionProvider.getExtension();
-          const { vaults, engine } = extension.getDWorkspace();
+          const ws = extension.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
 
@@ -630,7 +632,7 @@ suite("NoteLookupCommand", function () {
               }),
             ],
           });
-          const lc = extension.lookupControllerFactory.create({
+          const lc = await extension.lookupControllerFactory.create({
             nodeType: "note",
           });
           const lp = extension.noteLookupProviderFactory.create("lookup", {
@@ -667,6 +669,67 @@ suite("NoteLookupCommand", function () {
           cmd.cleanUp();
           getTemplateStub.restore();
         });
+
+        test("AND create new with template, but cancelled or nothing selected", async () => {
+          const extension = ExtensionProvider.getExtension();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
+          const cmd = new NoteLookupCommand();
+          stubVaultPick(vaults);
+
+          const mockQuickPick = createMockQuickPick({
+            value: "capers-are-not-berries",
+            selectedItems: [
+              NotePickerUtils.createNewWithTemplateItem({
+                fname: "capers-are-not-berries",
+              }),
+            ],
+          });
+          const lc = await extension.lookupControllerFactory.create({
+            nodeType: "note",
+          });
+          const lp = extension.noteLookupProviderFactory.create("lookup", {
+            allowNewNote: true,
+            allowNewNoteWithTemplate: true,
+            noHidePickerOnAccept: false,
+          });
+          await lc.prepareQuickPick({
+            initialValue: "capers-are-not-berries",
+            provider: lp,
+            placeholder: "",
+          });
+          cmd.controller = lc;
+          cmd.provider = lp;
+
+          const getTemplateStub = sinon
+            .stub(cmd, "getTemplateForNewNote" as keyof NoteLookupCommand)
+            .returns(Promise.resolve(undefined));
+          mockQuickPick.showNote = async (uri) => {
+            return vscode.window.showTextDocument(uri);
+          };
+
+          const cmdSpy = sinon.spy(cmd, "acceptNewWithTemplateItem");
+          await cmd.execute({
+            quickpick: mockQuickPick,
+            controller: lc,
+            provider: lp,
+            selectedItems: mockQuickPick.selectedItems,
+          });
+          const acceptNewWithTemplateItemOut = await cmdSpy.returnValues[0];
+
+          // accept result is undefined
+          expect(acceptNewWithTemplateItemOut).toEqual(undefined);
+
+          // foobarbaz is not created if template selection is cancelled, or selection was empty.
+          const maybeFooBarBazNotes = await engine.findNotes({
+            fname: "capers-are-not-berries",
+          });
+          expect(maybeFooBarBazNotes.length).toEqual(0);
+          cmdSpy.restore();
+          cmd.cleanUp();
+          getTemplateStub.restore();
+        });
       }
     );
 
@@ -678,7 +741,7 @@ suite("NoteLookupCommand", function () {
       },
       () => {
         test("THEN its title generation should not break", async () => {
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
           const opts = (await cmd.run({
@@ -739,7 +802,9 @@ suite("NoteLookupCommand", function () {
       },
       () => {
         test("THEN a note is created and stub property is removed", async () => {
-          const { vaults, engine } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
           const cmd = new NoteLookupCommand();
           const vault = TestEngineUtils.vault1(vaults);
           stubVaultPick(vaults);
@@ -788,7 +853,9 @@ suite("NoteLookupCommand", function () {
         onInit: async ({ vaults, wsRoot }) => {
           const vault = _.find(vaults, { fsPath: "vault2" });
           const cmd = new NoteLookupCommand();
-          sinon.stub(PickerUtilsV2, "getVaultForOpenEditor").returns(vault!);
+          sinon
+            .stub(PickerUtilsV2, "getVaultForOpenEditor")
+            .returns(Promise.resolve(vault!));
 
           const opts = (await cmd.run({
             noConfirm: true,
@@ -816,6 +883,7 @@ suite("NoteLookupCommand", function () {
         ctx,
         preSetupHook: ENGINE_HOOKS_MULTI.setupBasicMulti,
         onInit: async ({ wsRoot, vaults }) => {
+          // TODO: rewrite this whole test with `describMultiWS` once we remove `DConfig`.
           withConfig(
             (config) => {
               ConfigUtils.setNoteLookupProps(
@@ -942,7 +1010,9 @@ suite("NoteLookupCommand", function () {
             initialValue: "food.ch2",
             noConfirm: true,
           });
-          const { engine, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
 
           const newNote = (
             await engine.findNotes({ fname: "food.ch2", vault: vaults[0] })
@@ -995,7 +1065,9 @@ suite("NoteLookupCommand", function () {
             initialValue: "food.ch2",
             noConfirm: true,
           });
-          const { engine, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
 
           const newNote = (
             await engine.findNotes({ fname: "food.ch2", vault: vaults[0] })
@@ -1058,7 +1130,9 @@ suite("NoteLookupCommand", function () {
             initialValue: "food.ch2",
             noConfirm: true,
           });
-          const { engine, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
 
           const newNote = (
             await engine.findNotes({ fname: "food.ch2", vault: vaults[0] })
@@ -1115,7 +1189,9 @@ suite("NoteLookupCommand", function () {
         });
 
         test("AND user picks from prompted vault, THEN template body gets applied to new note", async () => {
-          const { engine, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
 
           // Pick vault 2
           showQuickPick.onFirstCall().returns(
@@ -1190,7 +1266,9 @@ suite("NoteLookupCommand", function () {
         });
 
         test("AND user escapes from prompted vault, THEN no template gets applied to new note", async () => {
-          const { engine, vaults } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
 
           // Escape out, leading to undefined note
           showQuickPick.onFirstCall().returns(Promise.resolve(undefined));
@@ -1429,7 +1507,7 @@ suite("NoteLookupCommand", function () {
   });
 
   describe("onAccept with lookupConfirmVaultOnCreate", () => {
-    const modConfigCb = (config: IntermediateDendronConfig) => {
+    const modConfigCb = (config: DendronConfig) => {
       ConfigUtils.setNoteLookupProps(config, "confirmVaultOnCreate", true);
       return config;
     };
@@ -1513,7 +1591,7 @@ suite("NoteLookupCommand", function () {
         preSetupHook: async ({ wsRoot, vaults }) => {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
-        onInit: async ({ vaults, wsRoot, engine }) => {
+        onInit: async ({ vaults, engine, wsRoot }) => {
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
           // with journal note modifier enabled,
@@ -1523,9 +1601,12 @@ suite("NoteLookupCommand", function () {
             noConfirm: true,
           })) as CommandOutput;
 
-          const dateFormat = ConfigUtils.getJournal(
-            DConfig.readConfigSync(wsRoot)
-          ).dateFormat;
+          const dateFormat = (
+            await ConfigService.instance().getConfig(
+              URI.file(wsRoot),
+              "workspace.journal.dateFormat"
+            )
+          )._unsafeUnwrap();
           expect(dateFormat).toEqual("y.MM.dd");
           // quickpick value should be `foo.journal.yyyy.mm.dd`
           const today = Time.now().toFormat(dateFormat);
@@ -1647,7 +1728,7 @@ suite("NoteLookupCommand", function () {
         preSetupHook: async ({ wsRoot, vaults }) => {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
-        onInit: async ({ vaults, wsRoot, engine }) => {
+        onInit: async ({ vaults, engine, wsRoot }) => {
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
           // with journal note modifier enabled,
@@ -1658,9 +1739,12 @@ suite("NoteLookupCommand", function () {
             noConfirm: true,
           })) as CommandOutput;
 
-          const dateFormat = ConfigUtils.getJournal(
-            DConfig.readConfigSync(wsRoot)
-          ).dateFormat;
+          const dateFormat = (
+            await ConfigService.instance().getConfig(
+              URI.file(wsRoot),
+              "workspace.journal.dateFormat"
+            )
+          )._unsafeUnwrap();
           expect(dateFormat).toEqual("y.MM.dd");
           // quickpick value should be `foo.journal.yyyy.mm.dd`
           const today = Time.now().toFormat(dateFormat);
@@ -1774,7 +1858,7 @@ suite("NoteLookupCommand", function () {
     test("selection modifier set to none in configs", (done) => {
       runLegacyMultiWorkspaceTest({
         ctx,
-        modConfigCb: (config: IntermediateDendronConfig) => {
+        modConfigCb: (config: DendronConfig) => {
           ConfigUtils.setNoteLookupProps(
             config,
             "selectionMode",
@@ -1911,7 +1995,9 @@ suite("NoteLookupCommand", function () {
       },
       () => {
         test("THEN it produces a valid string", async () => {
-          const { vaults, engine } = ExtensionProvider.getDWorkspace();
+          const ws = ExtensionProvider.getDWorkspace();
+          const { engine } = ws;
+          const vaults = await ws.vaults;
           const cmd = new NoteLookupCommand();
           stubVaultPick(vaults);
           const fooNoteEditor = await ExtensionProvider.getWSUtils().openNote(
@@ -2018,8 +2104,13 @@ suite("NoteLookupCommand", function () {
           expect(newNote?.body.trim()).toEqual("foo body");
 
           // should remove selection
-          const changedText = fooNoteEditor.document.getText();
-          expect(changedText.includes("foo body")).toBeFalsy();
+          const originalNote = (
+            await engine.findNotes({
+              fname: "foo",
+              vault: vaults[0],
+            })
+          )[0];
+          expect(originalNote.body.includes("foo body")).toBeFalsy();
           cmd.cleanUp();
           done();
         },
@@ -2032,6 +2123,7 @@ suite("NoteLookupCommand", function () {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
         onInit: async ({ wsRoot, vaults, engine }) => {
+          // TODO: rewrite this whole test with `describMultiWS` once we remove `DConfig`.
           withConfig(
             (config) => {
               ConfigUtils.setNoteLookupProps(config, "leaveTrace", true);
@@ -2268,7 +2360,7 @@ suite("NoteLookupCommand", function () {
         preSetupHook: async ({ wsRoot, vaults }) => {
           await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
         },
-        onInit: async ({ vaults, wsRoot, engine }) => {
+        onInit: async ({ vaults, engine, wsRoot }) => {
           const { controller, cmd } = await prepareCommandFunc({
             vaults,
             engine,
@@ -2285,9 +2377,12 @@ suite("NoteLookupCommand", function () {
           expect(journalBtn.pressed).toBeTruthy();
           expect(selection2linkBtn.pressed).toBeTruthy();
 
-          const dateFormat = ConfigUtils.getJournal(
-            DConfig.readConfigSync(wsRoot)
-          ).dateFormat;
+          const dateFormat = (
+            await ConfigService.instance().getConfig(
+              URI.file(wsRoot),
+              "workspace.journal.dateFormat"
+            )
+          )._unsafeUnwrap();
           const today = Time.now().toFormat(dateFormat);
           expect(controller.quickPick.value).toEqual(
             `foo.journal.${today}.foo-body`
@@ -2443,16 +2538,19 @@ suite("NoteLookupCommand", function () {
           preSetupHook: async ({ wsRoot, vaults }) => {
             await ENGINE_HOOKS.setupBasic({ wsRoot, vaults });
           },
-          onInit: async ({ vaults, wsRoot, engine }) => {
+          onInit: async ({ vaults, engine, wsRoot }) => {
             const { selectedText, cmd } = await prepareCommandFunc({
               vaults,
               engine,
               noteType: LookupNoteTypeEnum.journal,
             });
 
-            const dateFormat = ConfigUtils.getJournal(
-              DConfig.readConfigSync(wsRoot)
-            ).dateFormat;
+            const dateFormat = (
+              await ConfigService.instance().getConfig(
+                URI.file(wsRoot),
+                "workspace.journal.dateFormat"
+              )
+            )._unsafeUnwrap();
             const today = Time.now().toFormat(dateFormat);
             const newNote = (
               await engine.findNotes({
@@ -2520,7 +2618,7 @@ suite("NoteLookupCommand", function () {
               vaults,
             });
           })
-        )) as NoteQuickInput[];
+        )) as NoteQuickInputV2[];
 
         const runOpts = {
           multiSelect: true,
@@ -2704,7 +2802,7 @@ suite("NoteLookupCommand", function () {
         test("stub note that was accepted is created with the schema applied", async () => {
           VSCodeUtils.closeAllEditors();
           const cmd = new NoteLookupCommand();
-          const { vaults } = ExtensionProvider.getDWorkspace();
+          const vaults = await ExtensionProvider.getDWorkspace().vaults;
           stubVaultPick(vaults);
           const engine = ExtensionProvider.getEngine();
           await cmd.run({
@@ -2732,8 +2830,7 @@ suite("NoteLookupCommand", function () {
 suite("stateService", function () {
   let homeDirStub: SinonStub;
   const ctx: vscode.ExtensionContext = setupBeforeAfter(this, {
-    beforeHook: async (ctx) => {
-      new StateService(ctx);
+    beforeHook: async () => {
       await resetCodeWorkspace();
       homeDirStub = TestEngineUtils.mockHomeDir();
     },

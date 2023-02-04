@@ -4,6 +4,7 @@ import {
   FuseExtendedSearchConstants,
   NoteProps,
   NotePropsByIdDict,
+  NotePropsMeta,
   NoteUtils,
   ReducedDEngine,
 } from "..";
@@ -67,11 +68,10 @@ export class NoteLookupUtils {
   };
 
   static fetchRootResultsFromEngine = async (engine: ReducedDEngine) => {
-    // TODO: Support findNotesMeta
-    const roots = await engine.findNotes({ fname: "root" });
+    const roots = await engine.findNotesMeta({ fname: "root" });
 
     const childrenOfRoot = roots.flatMap((ent) => ent.children);
-    const childrenOfRootNotes = await engine.bulkGetNotes(childrenOfRoot);
+    const childrenOfRootNotes = await engine.bulkGetNotesMeta(childrenOfRoot);
     return roots.concat(childrenOfRootNotes.data);
   };
 
@@ -93,7 +93,7 @@ export class NoteLookupUtils {
     qsRaw: string;
     engine: DEngineClient;
     showDirectChildrenOnly?: boolean;
-  }): Promise<NoteProps[]> {
+  }): Promise<NotePropsMeta[]> {
     const qsClean = this.slashToDot(qsRaw);
 
     // special case: if query is empty, fetch top level notes
@@ -106,7 +106,7 @@ export class NoteLookupUtils {
       query: qsRaw,
       onlyDirectChildren: showDirectChildrenOnly,
     });
-    const resp = await engine.queryNotes({
+    let nodes = await engine.queryNotesMeta({
       qs: transformedQuery.queryString,
       originalQS: qsRaw,
       onlyDirectChildren: showDirectChildrenOnly,
@@ -114,8 +114,6 @@ export class NoteLookupUtils {
 
     // limit number of results. currently, this is hardcoded and we don't paginate
     // this is okay because we rely on user refining query to get more results
-    let nodes = resp.data;
-
     if (!nodes) {
       return [];
     }
